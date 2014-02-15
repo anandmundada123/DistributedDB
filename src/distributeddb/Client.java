@@ -23,9 +23,7 @@ import org.apache.hadoop.fs.FileSystem;
 import org.apache.hadoop.fs.Path;
 import org.apache.hadoop.yarn.api.ApplicationConstants;
 import org.apache.hadoop.yarn.api.ApplicationConstants.Environment;
-import org.apache.hadoop.yarn.api.ApplicationClientProtocol;
 import org.apache.hadoop.yarn.api.protocolrecords.GetNewApplicationResponse;
-import org.apache.hadoop.yarn.api.protocolrecords.KillApplicationRequest;
 import org.apache.hadoop.yarn.api.records.ApplicationId;
 import org.apache.hadoop.yarn.api.records.ApplicationReport;
 import org.apache.hadoop.yarn.api.records.ApplicationSubmissionContext;
@@ -50,7 +48,6 @@ import org.apache.hadoop.yarn.exceptions.YarnException;
 import org.apache.hadoop.yarn.util.ConverterUtils;
 import org.apache.hadoop.yarn.util.Records;
 
-
 @InterfaceAudience.Public
 @InterfaceStability.Unstable
 public class Client {
@@ -68,28 +65,24 @@ public class Client {
   private String amQueue = "";
   // Amt. of memory resource to request for to run the App Master
   private int amMemory = 10; 
-
   // Application master jar file
   private String appMasterJar = ""; 
   // Main class to invoke application master
   private final String appMasterMainClass = "distributeddb.ApplicationMaster";
-
   // Query to execute
   private String query = ""; 
-
+  // Node where to launch container
+  private String node = "";
   // Amt of memory to request for container in which shell script will be executed
   private int containerMemory = 10; 
   // No. of containers in which the shell script needs to be executed
   private int numContainers = 1;
-
   // Start time for client
   private final long clientStartTime = System.currentTimeMillis();
   // Timeout threshold for client. Kill app after time interval expires.
   private long clientTimeout = 600000;
-
   // Debug flag
   boolean debugFlag = false;	
-
   // Command line options
   private Options opts;
 
@@ -97,12 +90,12 @@ public class Client {
    * @param args Command line arguments 
    */
   public static void main(String[] args) {
-	System.out.println("DFWHELLOWORLD: Starting Client Code!");
+	System.out.println("Starting Client Code!");
 	
     boolean result = false;
     try {
       Client client = new Client();
-      LOG.info("DFW: Initializing Client");
+      LOG.info("Initializing Client");
       try {
         boolean doRun = client.init(args);
         if (!doRun) {
@@ -119,7 +112,7 @@ public class Client {
       System.exit(1);
     }
     if (result) {
-      LOG.info("DFW: Application completed successfully");
+      LOG.info("Application completed successfully");
       System.exit(0);			
     } 
     LOG.error("Application failed to complete successfully");
@@ -141,6 +134,8 @@ public class Client {
     opts.addOption("master_memory", true, "Amount of memory in MB to be requested to run the application master");
     opts.addOption("jar", true, "Jar file containing the application master");
     opts.addOption("query", true, "The distributed query to execute");
+    // Anand TODO
+    opts.addOption("node", true, "Node name where you want to launch container");
     opts.addOption("container_memory", true, "Amount of memory in MB to be requested to run the shell command");
     opts.addOption("num_containers", true, "No. of containers on which the shell command needs to be executed");
     opts.addOption("debug", false, "Dump out debug information");
@@ -174,7 +169,7 @@ public class Client {
       throw new IllegalArgumentException("No args specified for client to initialize");
     }		
 
-    if (cliParser.hasOption("help")) {
+    if (cliParser.hasOption("help") || cliParser.hasOption("h")) {
       printUsage();
       return false;
     }
@@ -201,10 +196,16 @@ public class Client {
     appMasterJar = cliParser.getOptionValue("jar");
 
     if (!cliParser.hasOption("query")) {
-      throw new IllegalArgumentException("No shell command specified to be executed by application master");
+      throw new IllegalArgumentException("No Query is specificed");
     }
     query = cliParser.getOptionValue("query");
 
+    // Anand
+    if (!cliParser.hasOption("node")) {
+        throw new IllegalArgumentException("No Node is specificed, e.g. master or slave");
+    }
+    node = cliParser.getOptionValue("node");
+      
     containerMemory = Integer.parseInt(cliParser.getOptionValue("container_memory", "10"));
     numContainers = Integer.parseInt(cliParser.getOptionValue("num_containers", "1"));
 
@@ -332,17 +333,18 @@ public class Client {
     long hdfsShellScriptLen = 0;
     long hdfsShellScriptTimestamp = 0;
     
-    /* DFW: this is an example of getting stuff into HDFS
+    // DFW: this is an example of getting stuff into HDFS
+    String shellScriptPath = DDBConstants.SCRIPT_LOCATION;
     if (!shellScriptPath.isEmpty()) {
       Path shellSrc = new Path(shellScriptPath);
-      String shellPathSuffix = appName + "/" + appId.getId() + "/ExecShellScript.sh";
+      String shellPathSuffix = appName + "/" + appId.getId() + "/" + DDBConstants.SCRIPT_LOCATION;
       Path shellDst = new Path(fs.getHomeDirectory(), shellPathSuffix);
       fs.copyFromLocalFile(false, true, shellSrc, shellDst);
       hdfsShellScriptLocation = shellDst.toUri().toString(); 
       FileStatus shellFileStatus = fs.getFileStatus(shellDst);
       hdfsShellScriptLen = shellFileStatus.getLen();
       hdfsShellScriptTimestamp = shellFileStatus.getModificationTime();
-    }*/
+    }
 
     // Set local resource info into app master container launch context
     amContainer.setLocalResources(localResources);
@@ -402,6 +404,8 @@ public class Client {
     vargs.add("--num_containers " + String.valueOf(numContainers));
     //NOTE: The query is a sentence and so we must surround it by quotes otherwise it won't get parsed properly by the ApplicationMaster
     vargs.add("--query '" + query + "'");
+    //Anand
+    vargs.add("--node " + node);
     
     if (debugFlag) {
       vargs.add("--debug");

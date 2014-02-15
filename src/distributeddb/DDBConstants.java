@@ -27,5 +27,11 @@ public class DDBConstants {
    * Used to validate the local resource. 
    */
   public static final String DDBLEN = "DISTRIBUTEDDATABASELEN";
+  
+  /**
+   * Location of Script on all nodes
+   */
+  public static final String SCRIPT_LOCATION = "exec_cmd.py";
+  
 }
 

@@ -171,6 +171,9 @@ public class ApplicationMaster {
   // Query to be executed
   private String query = "";
 
+  // Anand node where you want to launch container 
+  private String node = "";
+  
   // Location of shell script ( obtained from info set in env )
   // Shell script path in fs
   private String shellScriptPath = "";
@@ -180,7 +183,7 @@ public class ApplicationMaster {
   private long shellScriptPathLen = 0;
 
   // Hardcoded path to shell script in launch container's local env
-  private final String ExecShellStringPath = "ExecShellScript.sh";
+  private final String ExecShellStringPath = "exec_cmd.py";
 
   private volatile boolean done;
   private volatile boolean success;
@@ -264,12 +267,15 @@ public class ApplicationMaster {
    */
   public boolean init(String[] args) throws ParseException, IOException {
 
-    LOG.info("DFW: Starting ApplicationMaster INIT");
+    LOG.info("Starting ApplicationMaster INIT");
     Options opts = new Options();
     opts.addOption("app_attempt_id", true,
         "App Attempt ID. Not to be used unless for testing purposes");
     opts.addOption("query", true,
         "Query to be executed by the Application Master");
+    // Anand
+    opts.addOption("node", true,
+            "Node where containers should be launch");
     opts.addOption("container_memory", true,
         "Amount of memory in MB to be requested to run the shell command");
     opts.addOption("num_containers", true,
@@ -279,14 +285,14 @@ public class ApplicationMaster {
 
     opts.addOption("help", false, "Print usage");
     CommandLine cliParser = new GnuParser().parse(opts, args);
-
+    
     if (args.length == 0) {
       printUsage(opts);
       throw new IllegalArgumentException(
           "No args specified for application master to initialize");
     }
 
-    if (cliParser.hasOption("help")) {
+    if (cliParser.hasOption("help") || cliParser.hasOption("h")) {
       printUsage(opts);
       return false;
     }
@@ -297,6 +303,7 @@ public class ApplicationMaster {
 
     Map<String, String> envs = System.getenv();
 
+    // TODO Anand Remove following comment
     if (!envs.containsKey(Environment.CONTAINER_ID.name())) {
       if (cliParser.hasOption("app_attempt_id")) {
         String appIdStr = cliParser.getOptionValue("app_attempt_id", "");
@@ -338,8 +345,15 @@ public class ApplicationMaster {
           "No query specified to be executed by application master");
     }
     query = cliParser.getOptionValue("query");
-    LOG.info("DFW: Received Query " + query);
+    LOG.info("Received Query " + query);
 
+    if (!cliParser.hasOption("node")) {
+        throw new IllegalArgumentException(
+            "No node is specified where we have to launch containers");
+      }
+      node = cliParser.getOptionValue("node");
+      LOG.info("Anand: Received node " + node);
+      
     if (envs.containsKey(DDBConstants.DDBLOCATION)) {
       shellScriptPath = envs.get(DDBConstants.DDBLOCATION);
 
@@ -438,8 +452,9 @@ public class ApplicationMaster {
     // Keep looping until all the containers are launched and shell script
     // executed on them ( regardless of success/failure).
     for (int i = 0; i < numTotalContainers; ++i) {
-      ContainerRequest containerAsk = setupContainerAskForRM();
+      ContainerRequest containerAsk = setupContainerAskForRM(node);
       resourceManager.addContainerRequest(containerAsk);
+      System.out.println("Container is launched on node = " + containerAsk.getNodes());
     }
     numRequestedContainers.set(numTotalContainers);
 
@@ -548,7 +563,8 @@ public class ApplicationMaster {
 
       if (askCount > 0) {
         for (int i = 0; i < askCount; ++i) {
-          ContainerRequest containerAsk = setupContainerAskForRM();
+          System.out.println("I came into askCount");
+          ContainerRequest containerAsk = setupContainerAskForRM(node);
           resourceManager.addContainerRequest(containerAsk);
         }
       }
@@ -705,6 +721,7 @@ public class ApplicationMaster {
       // The container for the eventual shell commands needs its own local
       // resources too.
       // In this scenario, if a shell script is specified, we need to have it
+      //shellScriptPath = DDBConstants.SCRIPT_LOCATION;
       // copied and made available to the container.
       if (!shellScriptPath.isEmpty()) {
         LocalResource shellRsrc = Records.newRecord(LocalResource.class);
@@ -729,6 +746,7 @@ public class ApplicationMaster {
         shellRsrc.setTimestamp(shellScriptPathTimestamp);
         shellRsrc.setSize(shellScriptPathLen);
         localResources.put(ExecShellStringPath, shellRsrc);
+        System.out.println("Anand : resource URL " +shellRsrc.getResource());
       }
       ctx.setLocalResources(localResources);
 
@@ -736,12 +754,15 @@ public class ApplicationMaster {
       Vector<CharSequence> vargs = new Vector<CharSequence>(5);
 
       // Set executable command
-      vargs.add("'" + query + "'");
+      vargs.add("python");
+      
       // Set shell script path
       if (!shellScriptPath.isEmpty()) {
         vargs.add(ExecShellStringPath);
+        System.out.println("Anand: Added Shell Script");
       }
-
+      // pass query as command line parameter 
+      vargs.add("'" + query + "'");
       // Add log redirect params
       vargs.add("1>" + ApplicationConstants.LOG_DIR_EXPANSION_VAR + "/stdout");
       vargs.add("2>" + ApplicationConstants.LOG_DIR_EXPANSION_VAR + "/stderr");
@@ -751,7 +772,7 @@ public class ApplicationMaster {
       for (CharSequence str : vargs) {
         command.append(str).append(" ");
       }
-      LOG.info("DFW: Final command: " + command.toString());
+      LOG.info("anand123: Final command: " + command.toString());
 
       List<String> commands = new ArrayList<String>();
       commands.add(command.toString());
@@ -768,20 +789,29 @@ public class ApplicationMaster {
    * @param numContainers Containers to ask for from RM
    * @return the setup ResourceRequest to be sent to RM
    */
-  private ContainerRequest setupContainerAskForRM() {
+  /*
+   * TODO Anand May be you need to specify node in new container request 
+   * so pass that as argument to function
+   */
+  private ContainerRequest setupContainerAskForRM(String node) {
     // setup requirements for hosts
     // using * as any host will do for the distributed shell app
     // set the priority for the request
     Priority pri = Records.newRecord(Priority.class);
     // TODO - what is the range for priority? how to decide?
     pri.setPriority(requestPriority);
-
+    
+    //** Anand start 
+    String [] nodes = new String[1];
+    nodes[0] = new String(node.toString()); 
+    //** End
+    
     // Set up resource type requirements
     // For now, only memory is supported so we set memory requirements
     Resource capability = Records.newRecord(Resource.class);
     capability.setMemory(containerMemory);
-
-    ContainerRequest request = new ContainerRequest(capability, null, null,
+    
+    ContainerRequest request = new ContainerRequest(capability, nodes, null,
         pri);
     LOG.info("Requested container ask: " + request.toString());
     return request;
