@@ -11,39 +11,74 @@ def chech_i_startwith(txt, pattern):
     return str == pattern
     
 
-def reCreate_query(query):
-    if(chech_i_startwith(query, "insert")):
-        n1 = query.index('(')
-        n2 = query.index(')')
-        ql = query[:n1]
-        qr = query[n1+1:n2]
-        vArray = qr.split(',')
-        n = len(vArray)
-        newValue = '\'' + vArray[0] + '\''
-        for i in range(1, n):
-            newValue += ', \'' + vArray[i]  + '\''
-        query = ql + '(' + newValue + ')'
-    return query
+def fixQuery(query):
+    """The version of sqlite to support a multi-value insert statement is 3.7.11, assuming we don't have this
+        we need to fix the statement."""
+    
+    newQueryList = []
+    
+    #Make sure we compare against the proper string
+    regq = query.split(" ")
+    lwrq = query.lower().split(" ")
+    if("insert" in lwrq[0]):
+        #We are only concerned with what comes after a 'values' statement
+        if('values' not in lwrq):
+            print "ERROR: INSERT statement doesn't contain 'VALUES'"
+            return query
+        
+        valPtr = lwrq.index('values')
+        
+        #Pull out the initial query =  "INSERT INTO tbl (stuff) VALUES"
+        initialQuery = " ".join(regq[0:valPtr+1]) + " "
+
+        #Now for the rest of the query we have to pair parens
+        predList = []
+        FSM = "INIT"
+        for p in regq[valPtr+1:]:
+            #Looking for first "("
+            if(FSM == "INIT"):
+                if('(' in p):
+                    predList.append(p)
+                    FSM = "LOOKFOREND"
+                
+            elif(FSM == "LOOKFOREND"):
+                #look for end of list
+                if(')' in p):
+                    FSM = "INIT"
+                    #If there is a comma at the end we need to remove it
+                    p = p.rstrip(',')
+                    predList.append(p)
+                    #Found a predicate so generate a new query
+                    newQueryList.append(initialQuery + " ".join(predList))
+                    predList = []
+                
+                else:
+                    #Append all of these in the middle
+                    predList.append(p)
+    else:
+        newQueryList.append(query)
+
+    return newQueryList
             
 
 if __name__ == "__main__":
-    print sys.argv
     query = sys.argv[1:][0]
-    print query
     query = query.strip()
-    query = reCreate_query(query)
-    print query
+    #Fix the query if required depending on type
+    query = fixQuery(query)
     con = lite.connect(DBPATH)
     with con:
         cur = con.cursor()
         f = open(FILEPATH, 'w')
-        for row in cur.execute(query):
-            n = len(row)
-            row_str = row[0]
-            for i in range(1, n):
-                row_str += '\t' + member
-            f.write(row_str+ '\n')
-            #print row_str
+        #the fixQuery function returns a list of queries to run (even if its just one)
+        for q in query:
+            #parse over each row returned
+            for row in cur.execute(q):
+                #convert the data into a string
+                row = [str(r) for r in row]
+                #Convert the list returned into a string to print to file
+                s = '\t'.join(row)
+                f.write(s+ '\n')
         f.close()
         con.commit() 
         cur.close()
