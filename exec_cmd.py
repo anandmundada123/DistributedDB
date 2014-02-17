@@ -5,11 +5,14 @@ import sys
 DBPATH = "/home/hduser/test.db"
 FILEPATH = "/home/hduser/output"
 
-def chech_i_startwith(txt, pattern):
-    n = len(pattern);
-    str = txt[0:n].lower()
-    return str == pattern
-    
+def fixInsertVals(pred):
+    """This function takes a predicate segment like "(7," and it surrounds the actual value with quotes.
+        If we do this to all predicates then it won't ever fail (numbers, text, etc..)."""
+    #Strip out anything unimportant:
+    p = pred.strip('(,) ')
+    q = "'%s'" % p
+    pred = pred.replace(p, q)
+    return pred
 
 def fixQuery(query):
     """The version of sqlite to support a multi-value insert statement is 3.7.11, assuming we don't have this
@@ -38,13 +41,14 @@ def fixQuery(query):
             #Looking for first "("
             if(FSM == "INIT"):
                 if('(' in p):
-                    predList.append(p)
+                    predList.append(fixInsertVals(p))
                     FSM = "LOOKFOREND"
                 
             elif(FSM == "LOOKFOREND"):
                 #look for end of list
                 if(')' in p):
                     FSM = "INIT"
+                    p = fixInsertVals(p)
                     #If there is a comma at the end we need to remove it
                     p = p.rstrip(',')
                     predList.append(p)

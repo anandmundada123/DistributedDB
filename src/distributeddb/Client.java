@@ -66,7 +66,7 @@ public class Client {
   // Amt. of memory resource to request for to run the App Master
   private int amMemory = 10; 
   // Application master jar file
-  private String appMasterJar = ""; 
+  private String appMasterJar = "distributedDB.jar"; 
   // Main class to invoke application master
   private final String appMasterMainClass = "distributeddb.ApplicationMaster";
   // Query to execute
@@ -189,11 +189,11 @@ public class Client {
           + " Specified memory=" + amMemory);
     }
 
-    if (!cliParser.hasOption("jar")) {
-      throw new IllegalArgumentException("No jar file specified for application master");
+    //DFW: adding a default value so we don't have to pass this param
+    if (cliParser.hasOption("jar")) {
+      appMasterJar = cliParser.getOptionValue("jar", "distributedDB.jar");
     }		
 
-    appMasterJar = cliParser.getOptionValue("jar");
 
     if (!cliParser.hasOption("query")) {
       throw new IllegalArgumentException("No Query is specificed");
@@ -329,22 +329,40 @@ public class Client {
     // to the yarn framework. 
     // We do not need to set this as a local resource for the application 
     // master as the application master does not need it. 		
-    String hdfsShellScriptLocation = ""; 
-    long hdfsShellScriptLen = 0;
-    long hdfsShellScriptTimestamp = 0;
+    String hdfsDbShellScriptLocation = ""; 
+    String hdfsCaptShellScriptLocation = ""; 
+    long hdfsDbShellScriptLen = 0;
+    long hdfsCaptShellScriptLen = 0;
+    long hdfsDbShellScriptTimestamp = 0;
+    long hdfsCaptShellScriptTimestamp = 0;
     
-    // DFW: this is an example of getting stuff into HDFS
-    String shellScriptPath = DDBConstants.SCRIPT_LOCATION;
-    if (!shellScriptPath.isEmpty()) {
-      Path shellSrc = new Path(shellScriptPath);
-      String shellPathSuffix = appName + "/" + appId.getId() + "/" + DDBConstants.SCRIPT_LOCATION;
-      Path shellDst = new Path(fs.getHomeDirectory(), shellPathSuffix);
-      fs.copyFromLocalFile(false, true, shellSrc, shellDst);
-      hdfsShellScriptLocation = shellDst.toUri().toString(); 
-      FileStatus shellFileStatus = fs.getFileStatus(shellDst);
-      hdfsShellScriptLen = shellFileStatus.getLen();
-      hdfsShellScriptTimestamp = shellFileStatus.getModificationTime();
-    }
+    // Copy the required scripts so they are local resources to the worker nodes
+    String dbScriptPath = DDBConstants.DB_SCRIPT_LOCATION;
+    String captScriptPath = DDBConstants.CAPT_SCRIPT_LOCATION;
+    
+    Path dbShellSrc = new Path(dbScriptPath);
+    Path captShellSrc = new Path(captScriptPath);
+    
+    String dbShellPathSuffix = appName + "/" + appId.getId() + "/" + DDBConstants.DB_SCRIPT_LOCATION;
+    String captShellPathSuffix = appName + "/" + appId.getId() + "/" + DDBConstants.CAPT_SCRIPT_LOCATION;
+    
+    Path dbShellDst = new Path(fs.getHomeDirectory(), dbShellPathSuffix);
+    Path captShellDst = new Path(fs.getHomeDirectory(), captShellPathSuffix);
+    
+    fs.copyFromLocalFile(false, true, dbShellSrc, dbShellDst);
+    fs.copyFromLocalFile(false, true, captShellSrc, captShellDst);
+    
+    hdfsDbShellScriptLocation = dbShellDst.toUri().toString(); 
+    hdfsCaptShellScriptLocation = captShellDst.toUri().toString(); 
+    
+    FileStatus dbShellFileStatus = fs.getFileStatus(dbShellDst);
+    FileStatus captShellFileStatus = fs.getFileStatus(captShellDst);
+    
+    hdfsDbShellScriptLen = dbShellFileStatus.getLen();
+    hdfsCaptShellScriptLen = captShellFileStatus.getLen();
+    
+    hdfsDbShellScriptTimestamp = dbShellFileStatus.getModificationTime();
+    hdfsCaptShellScriptTimestamp = captShellFileStatus.getModificationTime();
 
     // Set local resource info into app master container launch context
     amContainer.setLocalResources(localResources);
@@ -359,9 +377,12 @@ public class Client {
     // put location of shell script into env
     // using the env info, the application master will create the correct local resource for the 
     // eventual containers that will be launched to execute the shell scripts
-    env.put(DDBConstants.DDBLOCATION, hdfsShellScriptLocation);
-    env.put(DDBConstants.DDBTIMESTAMP, Long.toString(hdfsShellScriptTimestamp));
-    env.put(DDBConstants.DDBLEN, Long.toString(hdfsShellScriptLen));
+    env.put(DDBConstants.DDB_DB_LOCATION, hdfsDbShellScriptLocation);
+    env.put(DDBConstants.DDB_DB_TIMESTAMP, Long.toString(hdfsDbShellScriptTimestamp));
+    env.put(DDBConstants.DDB_DB_LEN, Long.toString(hdfsDbShellScriptLen));
+    env.put(DDBConstants.DDB_CAPT_LOCATION, hdfsCaptShellScriptLocation);
+    env.put(DDBConstants.DDB_CAPT_TIMESTAMP, Long.toString(hdfsCaptShellScriptTimestamp));
+    env.put(DDBConstants.DDB_CAPT_LEN, Long.toString(hdfsCaptShellScriptLen));
 
     // Add AppMaster.jar location to classpath 		
     // At some point we should not be required to add 

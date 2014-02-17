@@ -176,14 +176,18 @@ public class ApplicationMaster {
   
   // Location of shell script ( obtained from info set in env )
   // Shell script path in fs
-  private String shellScriptPath = "";
+  private String shellDbScriptPath = "";
+  private String shellCaptScriptPath = "";
   // Timestamp needed for creating a local resource
-  private long shellScriptPathTimestamp = 0;
+  private long shellDbScriptPathTimestamp = 0;
+  private long shellCaptScriptPathTimestamp = 0;
   // File length needed for local resource
-  private long shellScriptPathLen = 0;
+  private long shellDbScriptPathLen = 0;
+  private long shellCaptScriptPathLen = 0;
 
   // Hardcoded path to shell script in launch container's local env
-  private final String ExecShellStringPath = "exec_cmd.py";
+  private final String ExecDbShellStringPath = "exec_cmd.py";
+  private final String ExecCaptShellStringPath = "getoutput.sh";
 
   private volatile boolean done;
   private volatile boolean success;
@@ -354,23 +358,46 @@ public class ApplicationMaster {
       node = cliParser.getOptionValue("node");
       LOG.info("Anand: Received node " + node);
       
-    if (envs.containsKey(DDBConstants.DDBLOCATION)) {
-      shellScriptPath = envs.get(DDBConstants.DDBLOCATION);
+    //For the DB script
+    if (envs.containsKey(DDBConstants.DDB_DB_LOCATION)) {
+      shellDbScriptPath = envs.get(DDBConstants.DDB_DB_LOCATION);
 
-      if (envs.containsKey(DDBConstants.DDBTIMESTAMP)) {
-        shellScriptPathTimestamp = Long.valueOf(envs
-            .get(DDBConstants.DDBTIMESTAMP));
+      if (envs.containsKey(DDBConstants.DDB_DB_TIMESTAMP)) {
+        shellDbScriptPathTimestamp = Long.valueOf(envs
+            .get(DDBConstants.DDB_DB_TIMESTAMP));
       }
-      if (envs.containsKey(DDBConstants.DDBLEN)) {
-        shellScriptPathLen = Long.valueOf(envs
-            .get(DDBConstants.DDBLEN));
+      if (envs.containsKey(DDBConstants.DDB_DB_LEN)) {
+        shellCaptScriptPathLen = Long.valueOf(envs
+            .get(DDBConstants.DDB_DB_LEN));
       }
 
-      if (!shellScriptPath.isEmpty()
-          && (shellScriptPathTimestamp <= 0 || shellScriptPathLen <= 0)) {
+      if (!shellDbScriptPath.isEmpty()
+          && (shellDbScriptPathTimestamp <= 0 || shellCaptScriptPathLen <= 0)) {
         LOG.error("Illegal values in env for shell script path" + ", path="
-            + shellScriptPath + ", len=" + shellScriptPathLen + ", timestamp="
-            + shellScriptPathTimestamp);
+            + shellDbScriptPath + ", len=" + shellCaptScriptPathLen + ", timestamp="
+            + shellDbScriptPathTimestamp);
+        throw new IllegalArgumentException(
+            "Illegal values in env for shell script path");
+      }
+    }
+    //For the Capt script
+    if (envs.containsKey(DDBConstants.DDB_CAPT_LOCATION)) {
+      shellCaptScriptPath = envs.get(DDBConstants.DDB_CAPT_LOCATION);
+
+      if (envs.containsKey(DDBConstants.DDB_CAPT_TIMESTAMP)) {
+        shellCaptScriptPathTimestamp = Long.valueOf(envs
+            .get(DDBConstants.DDB_CAPT_TIMESTAMP));
+      }
+      if (envs.containsKey(DDBConstants.DDB_DB_LEN)) {
+        shellCaptScriptPathLen = Long.valueOf(envs
+            .get(DDBConstants.DDB_CAPT_LEN));
+      }
+
+      if (!shellCaptScriptPath.isEmpty()
+          && (shellCaptScriptPathTimestamp <= 0 || shellCaptScriptPathLen <= 0)) {
+        LOG.error("Illegal values in env for shell script path" + ", path="
+            + shellCaptScriptPath + ", len=" + shellCaptScriptPathLen + ", timestamp="
+            + shellCaptScriptPathTimestamp);
         throw new IllegalArgumentException(
             "Illegal values in env for shell script path");
       }
@@ -721,18 +748,18 @@ public class ApplicationMaster {
       // The container for the eventual shell commands needs its own local
       // resources too.
       // In this scenario, if a shell script is specified, we need to have it
-      //shellScriptPath = DDBConstants.SCRIPT_LOCATION;
+      //shellDbScriptPath = DDBConstants.SCRIPT_LOCATION;
       // copied and made available to the container.
-      if (!shellScriptPath.isEmpty()) {
-        LocalResource shellRsrc = Records.newRecord(LocalResource.class);
-        shellRsrc.setType(LocalResourceType.FILE);
-        shellRsrc.setVisibility(LocalResourceVisibility.APPLICATION);
+      if (!shellDbScriptPath.isEmpty()) {
+        LocalResource shellDbRsrc = Records.newRecord(LocalResource.class);
+        shellDbRsrc.setType(LocalResourceType.FILE);
+        shellDbRsrc.setVisibility(LocalResourceVisibility.APPLICATION);
         try {
-          shellRsrc.setResource(ConverterUtils.getYarnUrlFromURI(new URI(
-              shellScriptPath)));
+          shellDbRsrc.setResource(ConverterUtils.getYarnUrlFromURI(new URI(
+              shellDbScriptPath)));
         } catch (URISyntaxException e) {
           LOG.error("Error when trying to use shell script path specified"
-              + " in env, path=" + shellScriptPath);
+              + " in env, path=" + shellDbScriptPath);
           e.printStackTrace();
 
           // A failure scenario on bad input such as invalid shell script path
@@ -743,22 +770,48 @@ public class ApplicationMaster {
           numFailedContainers.incrementAndGet();
           return;
         }
-        shellRsrc.setTimestamp(shellScriptPathTimestamp);
-        shellRsrc.setSize(shellScriptPathLen);
-        localResources.put(ExecShellStringPath, shellRsrc);
-        System.out.println("Anand : resource URL " +shellRsrc.getResource());
+        shellDbRsrc.setTimestamp(shellDbScriptPathTimestamp);
+        shellDbRsrc.setSize(shellDbScriptPathLen);
+        localResources.put(ExecDbShellStringPath, shellDbRsrc);
+        System.out.println("Anand : resource URL " +shellDbRsrc.getResource());
+      }
+      if (!shellCaptScriptPath.isEmpty()) {
+        LocalResource shellCaptRsrc = Records.newRecord(LocalResource.class);
+        shellCaptRsrc.setType(LocalResourceType.FILE);
+        shellCaptRsrc.setVisibility(LocalResourceVisibility.APPLICATION);
+        try {
+          shellCaptRsrc.setResource(ConverterUtils.getYarnUrlFromURI(new URI(
+              shellCaptScriptPath)));
+        } catch (URISyntaxException e) {
+          LOG.error("Error when trying to use shell script path specified"
+              + " in env, path=" + shellCaptScriptPath);
+          e.printStackTrace();
+
+          // A failure scenario on bad input such as invalid shell script path
+          // We know we cannot continue launching the container
+          // so we should release it.
+          // TODO
+          numCompletedContainers.incrementAndGet();
+          numFailedContainers.incrementAndGet();
+          return;
+        }
+        shellCaptRsrc.setTimestamp(shellCaptScriptPathTimestamp);
+        shellCaptRsrc.setSize(shellCaptScriptPathLen);
+        localResources.put(ExecCaptShellStringPath, shellCaptRsrc);
+        System.out.println("Anand : resource URL " +shellCaptRsrc.getResource());
       }
       ctx.setLocalResources(localResources);
 
       // Set the necessary command to execute on the allocated container
+      //First command: python
       Vector<CharSequence> vargs = new Vector<CharSequence>(5);
 
       // Set executable command
       vargs.add("python");
       
       // Set shell script path
-      if (!shellScriptPath.isEmpty()) {
-        vargs.add(ExecShellStringPath);
+      if (!shellDbScriptPath.isEmpty()) {
+        vargs.add(ExecDbShellStringPath);
         System.out.println("Anand: Added Shell Script");
       }
       // pass query as command line parameter 
@@ -767,15 +820,32 @@ public class ApplicationMaster {
       vargs.add("1>" + ApplicationConstants.LOG_DIR_EXPANSION_VAR + "/stdout");
       vargs.add("2>" + ApplicationConstants.LOG_DIR_EXPANSION_VAR + "/stderr");
 
-      // Get final commmand
-      StringBuilder command = new StringBuilder();
-      for (CharSequence str : vargs) {
-        command.append(str).append(" ");
+      //Second command: getoutput
+      Vector<CharSequence> vargscapt = new Vector<CharSequence>(5);
+      vargscapt.add("bash");
+      if (!shellCaptScriptPath.isEmpty()) {
+        vargscapt.add(ExecCaptShellStringPath);
+        System.out.println("DFW: Added getoutput Script");
       }
-      LOG.info("anand123: Final command: " + command.toString());
+
+      // Get DB commmand
+      StringBuilder dbCommand = new StringBuilder();
+      for (CharSequence str : vargs) {
+        dbCommand.append(str).append(" ");
+      }
+      LOG.info("DFW: Final DB Command: " + dbCommand.toString());
+
+      // Get DB commmand
+      StringBuilder captCommand = new StringBuilder();
+      for (CharSequence str : vargscapt) {
+        captCommand.append(str).append(" ");
+      }
+      LOG.info("DFW: Final command: " + captCommand.toString());
 
       List<String> commands = new ArrayList<String>();
-      commands.add(command.toString());
+      commands.add(dbCommand.toString());
+      commands.add(captCommand.toString());
+      
       ctx.setCommands(commands);
 
       containerListener.addContainer(container.getId(), container);
@@ -813,7 +883,7 @@ public class ApplicationMaster {
     
     ContainerRequest request = new ContainerRequest(capability, nodes, null,
         pri, false);
-    LOG.info("Requested container ask: " + request.toString());
+    LOG.info("DFW: Requested container ask: " + request.toString());
     return request;
   }
 }

@@ -26,6 +26,17 @@ class StatusProtocol(Protocol):
         """@override:
             Main function which receives data from outside world"""
         data = data.rstrip()
+        
+        if(data == "verbose on"):
+            self.factory.verbose = True
+            self.transport.write("ok")
+            self.transport.loseConnection()
+            return
+        elif(data == "verbose off"):
+            self.factory.verbose = False
+            self.transport.write("ok")
+            self.transport.loseConnection()
+            return
         print("%s data: %s" % (self.logPrefix(), data))
         
         #Call the subproc
@@ -35,6 +46,9 @@ class StatusProtocol(Protocol):
         #An error means we still need to push stdout to the client anyway
         if(proc.returncode):
             print('%s Error in query "%s"' % (self.logPrefix(), data))
+            self.transport.write("Error in query")
+            if(self.factory.verbose):
+                self.transport.write(errors)
         
         #Send back the response
         self.transport.write(output)
@@ -47,11 +61,10 @@ class Listener(Factory):
         Factory that listens to Status blocks coming in from the APs and writes them to the database.
     """
     def __init__(self):
-        pass
+        self.verbose = False
 
     def buildProtocol(self, addr):
         return StatusProtocol(addr, self)
-
 
 if(__name__ == "__main__"):
     while(True):
