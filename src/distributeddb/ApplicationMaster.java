@@ -812,7 +812,7 @@ public class ApplicationMaster {
     capability.setMemory(containerMemory);
     
     ContainerRequest request = new ContainerRequest(capability, nodes, null,
-        pri);
+        pri, false);
     LOG.info("Requested container ask: " + request.toString());
     return request;
   }
