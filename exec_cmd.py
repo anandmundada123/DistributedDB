@@ -4,6 +4,7 @@ import sys
 
 DBPATH = "/home/hduser/test.db"
 FILEPATH = "/home/hduser/output"
+queryType = ''
 
 def fixInsertVals(pred):
     """This function takes a predicate segment like "(7," and it surrounds the actual value with quotes.
@@ -17,13 +18,14 @@ def fixInsertVals(pred):
 def fixQuery(query):
     """The version of sqlite to support a multi-value insert statement is 3.7.11, assuming we don't have this
         we need to fix the statement."""
-    
+    global queryType
     newQueryList = []
     
     #Make sure we compare against the proper string
     regq = query.split(" ")
     lwrq = query.lower().split(" ")
     if("insert" in lwrq[0]):
+        queryType = 'insert'
         #We are only concerned with what comes after a 'values' statement
         if('values' not in lwrq):
             print "ERROR: INSERT statement doesn't contain 'VALUES'"
@@ -59,7 +61,17 @@ def fixQuery(query):
                 else:
                     #Append all of these in the middle
                     predList.append(p)
+    
+    elif("select" in lwrq[0]):
+        queryType = 'select'
+        newQueryList.append(query)
+    
+    elif("create" in lwrq[0]):
+        queryType = 'create'
+        newQueryList.append(query)
+    
     else:
+        queryType = 'other'
         newQueryList.append(query)
 
     return newQueryList
@@ -71,18 +83,24 @@ if __name__ == "__main__":
     #Fix the query if required depending on type
     query = fixQuery(query)
     con = lite.connect(DBPATH)
-    with con:
+    try:
         cur = con.cursor()
-        f = open(FILEPATH, 'w')
         #the fixQuery function returns a list of queries to run (even if its just one)
         for q in query:
             #parse over each row returned
-            for row in cur.execute(q):
+            results = cur.execute(q)
+            for row in results:
                 #convert the data into a string
                 row = [str(r) for r in row]
                 #Convert the list returned into a string to print to file
                 s = '\t'.join(row)
-                f.write(s+ '\n')
-        f.close()
-        con.commit() 
+                #DFW: switching to a | for a newline because otherwise the newlines get filtered out as the data makes it back to the Client
+                sys.stdout.write(s + "|")
+        con.commit()
+        if(queryType != 'select'):
+            print('success')
         cur.close()
+    except Exception as e:
+        print(str(e))
+    finally:
+        con.close()
