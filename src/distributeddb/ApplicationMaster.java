@@ -1,5 +1,6 @@
 package distributeddb;
 
+
 import java.io.BufferedReader;
 import java.io.IOException;
 import java.io.InputStreamReader;
@@ -122,756 +123,952 @@ import org.apache.hadoop.yarn.util.Records;
 @InterfaceStability.Unstable
 public class ApplicationMaster {
 
-  private static final Log LOG = LogFactory.getLog(ApplicationMaster.class);
+	private static final Log LOG = LogFactory.getLog(ApplicationMaster.class);
 
-  // Configuration
-  private Configuration conf;
+	// Configuration
+	private Configuration conf;
 
-  // Handle to communicate with the Resource Manager
-  @SuppressWarnings("rawtypes")
-  private AMRMClientAsync resourceManager;
+	// Handle to communicate with the Resource Manager
+	@SuppressWarnings("rawtypes")
+	private AMRMClientAsync resourceManager;
 
-  // Handle to communicate with the Node Manager
-  private NMClientAsync nmClientAsync;
-  // Listen to process the response from the Node Manager
-  private NMCallbackHandler containerListener;
-  
-  // Application Attempt Id ( combination of attemptId and fail count )
-  private ApplicationAttemptId appAttemptID;
+	// Handle to communicate with the Node Manager
+	private NMClientAsync nmClientAsync;
+	// Listen to process the response from the Node Manager
+	private NMCallbackHandler containerListener;
 
-  // TODO
-  // For status update for clients - yet to be implemented
-  // Hostname of the container
-  private String appMasterHostname = "";
-  // Port on which the app master listens for status updates from clients
-  private int appMasterRpcPort = 0;
-  // Tracking url to which app master publishes info for clients to monitor
-  private String appMasterTrackingUrl = "";
+	// Application Attempt Id ( combination of attemptId and fail count )
+	private ApplicationAttemptId appAttemptID;
 
-  // App Master configuration
-  // No. of containers to run shell command on
-  private int numTotalContainers = 1;
-  // Memory to request for the container on which the shell command will run
-  private int containerMemory = 10;
-  // Priority of the request
-  private int requestPriority;
+	// TODO
+	// For status update for clients - yet to be implemented
+	// Hostname of the container
+	private String appMasterHostname = "";
+	// Port on which the app master listens for status updates from clients
+	private int appMasterRpcPort = 0;
+	// Tracking url to which app master publishes info for clients to monitor
+	private String appMasterTrackingUrl = "";
 
-  // Counter for completed containers ( complete denotes successful or failed )
-  private AtomicInteger numCompletedContainers = new AtomicInteger();
-  // Allocated container count so that we know how many containers has the RM
-  // allocated to us
-  private AtomicInteger numAllocatedContainers = new AtomicInteger();
-  // Count of failed containers
-  private AtomicInteger numFailedContainers = new AtomicInteger();
-  // Count of containers already requested from the RM
-  // Needed as once requested, we should not request for containers again.
-  // Only request for more if the original requirement changes.
-  private AtomicInteger numRequestedContainers = new AtomicInteger();
+	// App Master configuration
+	// No. of containers to run shell command on
+	private int numTotalContainers = 1;
+	// Memory to request for the container on which the shell command will run
+	private int containerMemory = 10;
+	// Priority of the request
+	private int requestPriority;
 
-  // Query to be executed
-  private String query = "";
+	// Counter for completed containers ( complete denotes successful or failed )
+	private AtomicInteger numCompletedContainers = new AtomicInteger();
+	// Allocated container count so that we know how many containers has the RM
+	// allocated to us
+	private AtomicInteger numAllocatedContainers = new AtomicInteger();
+	// Count of failed containers
+	private AtomicInteger numFailedContainers = new AtomicInteger();
+	// Count of containers already requested from the RM
+	// Needed as once requested, we should not request for containers again.
+	// Only request for more if the original requirement changes.
+	private AtomicInteger numRequestedContainers = new AtomicInteger();
 
-  // Anand node where you want to launch container 
-  private String node = "";
-  
-  // Location of shell script ( obtained from info set in env )
-  // Shell script path in fs
-  private String shellDbScriptPath = "";
-  private String shellWrapScriptPath = "";
-  
-  // Timestamp needed for creating a local resource
-  private long shellDbScriptPathTimestamp = 0;
-  private long shellWrapScriptPathTimestamp = 0;
-  
-  // File length needed for local resource
-  private long shellDbScriptPathLen = 0;
-  private long shellWrapScriptPathLen = 0;
+	// Query to be executed
+	private String query = "";
+	
+	// Anand node where you want to launch container 
+	private String nodeList = "";
 
-  // Hardcoded path to shell script in launch container's local env
-  private final String ExecDbShellStringPath = DDBConstants.DB_SCRIPT_LOCATION;
-  private final String ExecWrapShellStringPath = DDBConstants.WRAP_SCRIPT_LOCATION;
+	// NEW: Variables which will store client host name, port number
+	// and appMaster Host name, port number
+	private String clientHostName;
+	private int clientPortNo;
+	private String appMasterHost;
+	private int appMasterPortNo;
 
-  private volatile boolean done;
-  private volatile boolean success;
-  
-  // Launch threads
-  private List<Thread> launchThreads = new ArrayList<Thread>();
+	// Location of shell script ( obtained from info set in env )
+	// Shell script path in fs
+	private String shellDbScriptPath = "";
+	private String shellWrapScriptPath = "";
+	//private String shellContainerScriptPath = "";
+	
+	// Timestamp needed for creating a local resource
+	private long shellDbScriptPathTimestamp = 0;
+	private long shellWrapScriptPathTimestamp = 0;
+	//private long shellContainerScriptPathTimestamp = 0;
+	
+	// File length needed for local resource
+	private long shellDbScriptPathLen = 0;
+	private long shellWrapScriptPathLen = 0;
+	//private long shellContainerScriptPathLen = 0;
+	
+	// Hardcoded path to shell script in launch container's local env
+	private final String ExecDbShellStringPath = DDBConstants.DB_SCRIPT_LOCATION;
+	//private final String ExecWrapShellStringPath = DDBConstants.WRAP_SCRIPT_LOCATION;
+	private final String ExecWrapShellStringPath = "cont_net.py";
+	//private final String ExecContainerStringPath = DDBConstants.CONTAINER_SCRIPT_LOCATION;
+	
+	private volatile boolean done;
+	private volatile boolean success;
 
-  /**
-   * @param args Command line args
-   */
-  public static void main(String[] args) {
-    boolean result = false;
-    try {
-      ApplicationMaster appMaster = new ApplicationMaster();
-      LOG.info("Initializing ApplicationMaster");
-      boolean doRun = appMaster.init(args);
-      if (!doRun) {
-        System.exit(0);
-      }
-      result = appMaster.run();
-    } catch (Throwable t) {
-      LOG.fatal("Error running ApplicationMaster", t);
-      System.exit(1);
-    }
-    if (result) {
-      LOG.info("Application Master completed successfully. exiting");
-      System.exit(0);
-    } else {
-      LOG.info("Application Master failed. exiting");
-      System.exit(2);
-    }
-  }
+	// Launch threads
+	private List<Thread> launchThreads = new ArrayList<Thread>();
 
-  /**
-   * Dump out contents of $CWD and the environment to stdout for debugging
-   */
-  private void dumpOutDebugInfo() {
+	/**
+	 * @param args Command line args
+	 */
+	public static void main(String[] args) {
 
-    LOG.info("Dump debug output");
-    Map<String, String> envs = System.getenv();
-    for (Map.Entry<String, String> env : envs.entrySet()) {
-      LOG.info("System env: key=" + env.getKey() + ", val=" + env.getValue());
-      System.out.println("System env: key=" + env.getKey() + ", val="
-          + env.getValue());
-    }
+		try {
+			ApplicationMaster appMaster = new ApplicationMaster();
+			LOG.info("Initializing ApplicationMaster");
+			boolean doRun = appMaster.init(args);
+			if (!doRun) {
+				System.exit(0);
+			}
+			appMaster.startAppMasterServer();
 
-    String cmd = "ls -al";
-    Runtime run = Runtime.getRuntime();
-    Process pr = null;
-    try {
-      pr = run.exec(cmd);
-      pr.waitFor();
+		} catch (Throwable t) {
+			LOG.fatal("Error running ApplicationMaster", t);
+			System.exit(1);
+		}
 
-      BufferedReader buf = new BufferedReader(new InputStreamReader(
-          pr.getInputStream()));
-      String line = "";
-      while ((line = buf.readLine()) != null) {
-        LOG.info("System CWD content: " + line);
-        System.out.println("System CWD content: " + line);
-      }
-      buf.close();
-    } catch (IOException e) {
-      e.printStackTrace();
-    } catch (InterruptedException e) {
-      e.printStackTrace();
-    }
-  }
+	}
 
-  public ApplicationMaster() throws Exception {
-    // Set up the configuration and RPC
-    conf = new YarnConfiguration();
-  }
+	private String getNextMsg(TCPServer tcpServer) {
+		String query1 = null;
+		while (true) {
+			query1 = tcpServer.getNextQuery();
+			if(query1 == null) {
+				try {
+					Thread.sleep(1000);
+				} catch (InterruptedException e) {
+					LOG.warn("Thread interrupted from sleep?" + e.getLocalizedMessage());
+				}
+				continue;
+			} else {
+				query1 = query1.trim();
+				break;
+			}
+		}
+		return query1;
+	}
+	
+	
+	/**
+	 * NEW: This function will send message to Client with host name and port number
+	 * Then it will start a port in listen port.
+	 * @throws YarnException
+	 * @throws IOException
+	 */
+	private void startAppMasterServer() throws YarnException, IOException {
+		appMasterHost = DDBUtil.getHostName();
+		appMasterPortNo = DDBUtil.findFreePort();
+		
+		/*
+		 * Start server
+		 */
+		
+		// create client connection with Yarn-Client
+		System.out.println("Client Host Name: " + clientHostName + " Client Port No: " + clientPortNo);
+		// Start AM Server and if you get exception send exit message to client
+		TCPServer tcpServer = null;
+		try {
+			tcpServer = new TCPServer(appMasterHost, appMasterPortNo, LOG);
+			System.out.println("Starting AppMaster TCP Server on port " + appMasterPortNo);
+			tcpServer.run();
+		} catch (Exception e) {
+			System.err.println(e.getLocalizedMessage());
+			TCPClient client = new TCPClient(clientHostName, clientPortNo);
+			client.init();
+			client.sendMsg("exit");
+			client.closeConnection();
+			tcpServer.close();
+			System.exit(-1);
+		}
+		
+		/*
+		 * NEW: Initialize resource manager and register Application manager to resource manager 
+		 */
+		initializeAppMaster();
+		
+		/* 
+		 * Send message to client 
+		 */
+		
+		String msg = DDBConstants.APP_MASTER_INFO + " " + appMasterHost + " " + appMasterPortNo;
+		TCPClient client = new TCPClient(clientHostName, clientPortNo);
+		client.init();
+		client.sendMsg(msg);
+		
+		/*
+		 * Launch container on master node
+		 * FIXME: Here we have to launch containers on every node in future
+		 */
+		
+		for(String n: nodeList.split(",")) {
+			boolean result = false;
+			result = run(n);
+			if (result) {
+				System.out.println("Container successfully launched on "+ n + "..");
+			} else {
+				System.out.println("Launching Container failed on " + n + "..");
+				client.closeConnection();
+				client = new TCPClient(clientHostName, clientPortNo);
+				client.init();
+				client.sendMsg("exit");
+				//client.closeConnection();
+				tcpServer.close();
+				exitAppMaster();
+				System.exit(0);
+			}
+		}
+		
+		System.out.println("waiting for query from client..");
+		
+		while (true) {
+			// Wait to get query from Client
+			msg = getNextMsg(tcpServer);
+			System.out.println("Got Query:"+msg+":");
+			if(msg.startsWith("exit")) {
+				System.out.println("Exiting as got exit from Client");
+				
+				/*containerClient.closeConnection();
+				containerClient = new TCPClient(contHost, contPort);
+				containerClient.init();
+				containerClient.sendMsg("exit");*/
+				//containerClient.closeConnection();
+	
+				tcpServer.close();
+				exitAppMaster();
+				System.exit(0);
+			} else {
+				// Send Query to Container
+				/*containerClient.closeConnection();
+				containerClient = new TCPClient(contHost, contPort);
+				containerClient.init();
+				containerClient.sendMsg(msg);*/
+				
+				
+				// Wait to get message from container
+				/*msg = getNextMsg(tcpServer);
+				System.out.println("Got reply from container: "+ msg);
+				client.closeConnection();
+				client = new TCPClient(clientHostName, clientPortNo);
+				client.init();
+				client.sendMsg(msg);*/
+				// TODO Add code here to launch container on a given node
+				System.out.println("Client is requested to launch container on "+ msg);
+			}
+		}
+		
+	}
 
-  /**
-   * Parse command line options
-   *
-   * @param args Command line args
-   * @return Whether init successful and run should be invoked
-   * @throws ParseException
-   * @throws IOException
-   */
-  public boolean init(String[] args) throws ParseException, IOException {
+	/**
+	 * Dump out contents of $CWD and the environment to stdout for debugging
+	 */
+	private void dumpOutDebugInfo() {
 
-    LOG.info("Starting ApplicationMaster INIT");
-    Options opts = new Options();
-    opts.addOption("app_attempt_id", true,
-        "App Attempt ID. Not to be used unless for testing purposes");
-    opts.addOption("query", true,
-        "Query to be executed by the Application Master");
-    // Anand
-    opts.addOption("node", true,
-            "Node where containers should be launch");
-    opts.addOption("container_memory", true,
-        "Amount of memory in MB to be requested to run the shell command");
-    opts.addOption("num_containers", true,
-        "No. of containers on which the shell command needs to be executed");
-    opts.addOption("priority", true, "Application Priority. Default 0");
-    opts.addOption("debug", false, "Dump out debug information");
+		LOG.info("Dump debug output");
+		Map<String, String> envs = System.getenv();
+		for (Map.Entry<String, String> env : envs.entrySet()) {
+			LOG.info("System env: key=" + env.getKey() + ", val=" + env.getValue());
+			System.out.println("System env: key=" + env.getKey() + ", val="
+					+ env.getValue());
+		}
 
-    opts.addOption("help", false, "Print usage");
-    CommandLine cliParser = new GnuParser().parse(opts, args);
-    
-    if (args.length == 0) {
-      printUsage(opts);
-      throw new IllegalArgumentException(
-          "No args specified for application master to initialize");
-    }
+		String cmd = "ls -al";
+		Runtime run = Runtime.getRuntime();
+		Process pr = null;
+		try {
+			pr = run.exec(cmd);
+			pr.waitFor();
 
-    if (cliParser.hasOption("help") || cliParser.hasOption("h")) {
-      printUsage(opts);
-      return false;
-    }
+			BufferedReader buf = new BufferedReader(new InputStreamReader(
+					pr.getInputStream()));
+			String line = "";
+			while ((line = buf.readLine()) != null) {
+				LOG.info("System CWD content: " + line);
+				System.out.println("System CWD content: " + line);
+			}
+			buf.close();
+		} catch (IOException e) {
+			e.printStackTrace();
+		} catch (InterruptedException e) {
+			e.printStackTrace();
+		}
+	}
 
-    if (cliParser.hasOption("debug")) {
-      dumpOutDebugInfo();
-    }
+	public ApplicationMaster() throws Exception {
+		// Set up the configuration and RPC
+		conf = new YarnConfiguration();
+	}
 
-    Map<String, String> envs = System.getenv();
+	/**
+	 * Parse command line options
+	 *
+	 * @param args Command line args
+	 * @return Whether init successful and run should be invoked
+	 * @throws ParseException
+	 * @throws IOException
+	 */
+	public boolean init(String[] args) throws ParseException, IOException {
 
-    // TODO Anand Remove following comment
-    if (!envs.containsKey(Environment.CONTAINER_ID.name())) {
-      if (cliParser.hasOption("app_attempt_id")) {
-        String appIdStr = cliParser.getOptionValue("app_attempt_id", "");
-        appAttemptID = ConverterUtils.toApplicationAttemptId(appIdStr);
-      } else {
-        throw new IllegalArgumentException(
-            "Application Attempt Id not set in the environment");
-      }
-    } else {
-      ContainerId containerId = ConverterUtils.toContainerId(envs
-          .get(Environment.CONTAINER_ID.name()));
-      appAttemptID = containerId.getApplicationAttemptId();
-    }
+		LOG.info("Starting ApplicationMaster INIT");
+		Options opts = new Options();
+		opts.addOption("app_attempt_id", true,
+				"App Attempt ID. Not to be used unless for testing purposes");
+		//opts.addOption("query", true,
+		//  "Query to be executed by the Application Master");
+		// Anand
+		//opts.addOption("node", true,
+		//      "Node where containers should be launch");
+		opts.addOption("container_memory", true,
+				"Amount of memory in MB to be requested to run the shell command");
+		opts.addOption("num_containers", true,
+				"No. of containers on which the shell command needs to be executed");
+		opts.addOption("priority", true, "Application Priority. Default 0");
+		opts.addOption("debug", false, "Dump out debug information");
+		/**
+		 * NEW: Appmaster will get Client Host Name and Client Port number
+		 */
+		opts.addOption(DDBConstants.CLIENT_HOST_NAME, true, "Client Host Name");
+		opts.addOption(DDBConstants.CLIENT_PORT_NO, true, "Client port number");
+		opts.addOption("nodes", true, "List of nodes where containers has to be launched");
+		opts.addOption("help", false, "Print usage");
+		CommandLine cliParser = new GnuParser().parse(opts, args);
 
-    if (!envs.containsKey(ApplicationConstants.APP_SUBMIT_TIME_ENV)) {
-      throw new RuntimeException(ApplicationConstants.APP_SUBMIT_TIME_ENV
-          + " not set in the environment");
-    }
-    if (!envs.containsKey(Environment.NM_HOST.name())) {
-      throw new RuntimeException(Environment.NM_HOST.name()
-          + " not set in the environment");
-    }
-    if (!envs.containsKey(Environment.NM_HTTP_PORT.name())) {
-      throw new RuntimeException(Environment.NM_HTTP_PORT
-          + " not set in the environment");
-    }
-    if (!envs.containsKey(Environment.NM_PORT.name())) {
-      throw new RuntimeException(Environment.NM_PORT.name()
-          + " not set in the environment");
-    }
+		if (args.length == 0) {
+			printUsage(opts);
+			throw new IllegalArgumentException(
+					"No args specified for application master to initialize");
+		}
 
-    LOG.info("Application master for app" + ", appId="
-        + appAttemptID.getApplicationId().getId() + ", clustertimestamp="
-        + appAttemptID.getApplicationId().getClusterTimestamp()
-        + ", attemptId=" + appAttemptID.getAttemptId());
+		if (cliParser.hasOption("help") || cliParser.hasOption("h")) {
+			printUsage(opts);
+			return false;
+		}
 
-    if (!cliParser.hasOption("query")) {
+		if (cliParser.hasOption("debug")) {
+			dumpOutDebugInfo();
+		}
+
+		Map<String, String> envs = System.getenv();
+
+		// TODO Anand Remove following comment
+		if (!envs.containsKey(Environment.CONTAINER_ID.name())) {
+			if (cliParser.hasOption("app_attempt_id")) {
+				String appIdStr = cliParser.getOptionValue("app_attempt_id", "");
+				appAttemptID = ConverterUtils.toApplicationAttemptId(appIdStr);
+			} else {
+				throw new IllegalArgumentException(
+						"Application Attempt Id not set in the environment");
+			}
+		} else {
+			ContainerId containerId = ConverterUtils.toContainerId(envs
+					.get(Environment.CONTAINER_ID.name()));
+			appAttemptID = containerId.getApplicationAttemptId();
+		}
+
+		if (!envs.containsKey(ApplicationConstants.APP_SUBMIT_TIME_ENV)) {
+			throw new RuntimeException(ApplicationConstants.APP_SUBMIT_TIME_ENV
+					+ " not set in the environment");
+		}
+		if (!envs.containsKey(Environment.NM_HOST.name())) {
+			throw new RuntimeException(Environment.NM_HOST.name()
+					+ " not set in the environment");
+		}
+		if (!envs.containsKey(Environment.NM_HTTP_PORT.name())) {
+			throw new RuntimeException(Environment.NM_HTTP_PORT
+					+ " not set in the environment");
+		}
+		if (!envs.containsKey(Environment.NM_PORT.name())) {
+			throw new RuntimeException(Environment.NM_PORT.name()
+					+ " not set in the environment");
+		}
+
+		LOG.info("Application master for app" + ", appId="
+				+ appAttemptID.getApplicationId().getId() + ", clustertimestamp="
+				+ appAttemptID.getApplicationId().getClusterTimestamp()
+				+ ", attemptId=" + appAttemptID.getAttemptId());
+
+		/* if (!cliParser.hasOption("query")) {
       throw new IllegalArgumentException(
           "No query specified to be executed by application master");
     }
-    query = cliParser.getOptionValue("query");
-    LOG.info("Received Query " + query);
 
-    if (!cliParser.hasOption("node")) {
+    query = cliParser.getOptionValue("query");
+    LOG.info("Received Query " + query);*/
+
+		// NEW: get client host name and client port number
+
+		if (!cliParser.hasOption(DDBConstants.CLIENT_HOST_NAME)) {
+			throw new IllegalArgumentException(
+					"No client host name is provided");
+		}
+
+		clientHostName = cliParser.getOptionValue(DDBConstants.CLIENT_HOST_NAME);
+		LOG.info("Received Client Host Name" + clientHostName);
+
+		if (!cliParser.hasOption(DDBConstants.CLIENT_PORT_NO)) {
+			throw new IllegalArgumentException(
+					"No client port number is provided");
+		}
+
+		clientPortNo = Integer.parseInt(cliParser.getOptionValue(DDBConstants.CLIENT_PORT_NO));
+		LOG.info("Received Client port number" + clientPortNo);
+		
+		if (!cliParser.hasOption("nodes")) {
         throw new IllegalArgumentException(
             "No node is specified where we have to launch containers");
       }
-      node = cliParser.getOptionValue("node");
-      LOG.info("Anand: Received node " + node);
-      
-    //For the DB script
-    if (envs.containsKey(DDBConstants.DDB_DB_LOCATION)) {
-      shellDbScriptPath = envs.get(DDBConstants.DDB_DB_LOCATION);
 
-      if (envs.containsKey(DDBConstants.DDB_DB_TIMESTAMP)) {
-        shellDbScriptPathTimestamp = Long.valueOf(envs
-            .get(DDBConstants.DDB_DB_TIMESTAMP));
-      }
-      if (envs.containsKey(DDBConstants.DDB_DB_LEN)) {
-        shellDbScriptPathLen = Long.valueOf(envs
-            .get(DDBConstants.DDB_DB_LEN));
-      }
+      nodeList = cliParser.getOptionValue("nodes");
+      LOG.info("Anand: Received node " + nodeList);
 
-      if (!shellDbScriptPath.isEmpty()
-          && (shellDbScriptPathTimestamp <= 0 || shellDbScriptPathLen <= 0)) {
-        LOG.error("Illegal values in env for shell script path" + ", path="
-            + shellDbScriptPath + ", len=" + shellDbScriptPathLen + ", timestamp="
-            + shellDbScriptPathTimestamp);
-        throw new IllegalArgumentException(
-            "Illegal values in env for shell script path");
-      }
-    }
-    
-    //For wrap script
-    if (envs.containsKey(DDBConstants.DDB_WRAP_LOCATION)) {
-      shellWrapScriptPath = envs.get(DDBConstants.DDB_WRAP_LOCATION);
+		//For the DB script
+		if (envs.containsKey(DDBConstants.DDB_DB_LOCATION)) {
+			shellDbScriptPath = envs.get(DDBConstants.DDB_DB_LOCATION);
 
-      if (envs.containsKey(DDBConstants.DDB_WRAP_TIMESTAMP)) {
-        shellWrapScriptPathTimestamp = Long.valueOf(envs
-            .get(DDBConstants.DDB_WRAP_TIMESTAMP));
-      }
-      if (envs.containsKey(DDBConstants.DDB_WRAP_LEN)) {
-        shellWrapScriptPathLen = Long.valueOf(envs
-            .get(DDBConstants.DDB_WRAP_LEN));
-      }
+			if (envs.containsKey(DDBConstants.DDB_DB_TIMESTAMP)) {
+				shellDbScriptPathTimestamp = Long.valueOf(envs
+						.get(DDBConstants.DDB_DB_TIMESTAMP));
+			}
+			if (envs.containsKey(DDBConstants.DDB_DB_LEN)) {
+				shellDbScriptPathLen = Long.valueOf(envs
+						.get(DDBConstants.DDB_DB_LEN));
+			}
 
-      if (!shellWrapScriptPath.isEmpty()
-          && (shellWrapScriptPathTimestamp <= 0 || shellWrapScriptPathLen <= 0)) {
-        LOG.error("Illegal values in env for shell script path" + ", path="
-            + shellWrapScriptPath + ", len=" + shellWrapScriptPathLen + ", timestamp="
-            + shellWrapScriptPathTimestamp);
-        throw new IllegalArgumentException(
-            "Illegal values in env for shell script path");
-      }
-    }
+			if (!shellDbScriptPath.isEmpty()
+					&& (shellDbScriptPathTimestamp <= 0 || shellDbScriptPathLen <= 0)) {
+				LOG.error("Illegal values in env for shell script path" + ", path="
+						+ shellDbScriptPath + ", len=" + shellDbScriptPathLen + ", timestamp="
+						+ shellDbScriptPathTimestamp);
+				throw new IllegalArgumentException(
+						"Illegal values in env for shell script path");
+			}
+		}
 
-    containerMemory = Integer.parseInt(cliParser.getOptionValue(
-        "container_memory", "10"));
-    numTotalContainers = Integer.parseInt(cliParser.getOptionValue(
-        "num_containers", "1"));
-    if (numTotalContainers == 0) {
-      throw new IllegalArgumentException(
-          "Cannot run distributed shell with no containers");
-    }
-    requestPriority = Integer.parseInt(cliParser
-        .getOptionValue("priority", "0"));
+		//For wrap script
+		if (envs.containsKey(DDBConstants.DDB_WRAP_LOCATION)) {
+			shellWrapScriptPath = envs.get(DDBConstants.DDB_WRAP_LOCATION);
 
-    return true;
-  }
+			if (envs.containsKey(DDBConstants.DDB_WRAP_TIMESTAMP)) {
+				shellWrapScriptPathTimestamp = Long.valueOf(envs
+						.get(DDBConstants.DDB_WRAP_TIMESTAMP));
+			}
+			if (envs.containsKey(DDBConstants.DDB_WRAP_LEN)) {
+				shellWrapScriptPathLen = Long.valueOf(envs
+						.get(DDBConstants.DDB_WRAP_LEN));
+			}
 
-  /**
-   * Helper function to print usage
-   *
-   * @param opts Parsed command line options
-   */
-  private void printUsage(Options opts) {
-    new HelpFormatter().printHelp("ApplicationMaster", opts);
-  }
+			if (!shellWrapScriptPath.isEmpty()
+					&& (shellWrapScriptPathTimestamp <= 0 || shellWrapScriptPathLen <= 0)) {
+				LOG.error("Illegal values in env for shell script path" + ", path="
+						+ shellWrapScriptPath + ", len=" + shellWrapScriptPathLen + ", timestamp="
+						+ shellWrapScriptPathTimestamp);
+				throw new IllegalArgumentException(
+						"Illegal values in env for shell script path");
+			}
+		}
+		
+		containerMemory = Integer.parseInt(cliParser.getOptionValue(
+				"container_memory", "10"));
+		numTotalContainers = Integer.parseInt(cliParser.getOptionValue(
+				"num_containers", "1"));
+		if (numTotalContainers == 0) {
+			throw new IllegalArgumentException(
+					"Cannot run distributed shell with no containers");
+		}
+		requestPriority = Integer.parseInt(cliParser
+				.getOptionValue("priority", "0"));
 
-  /**
-   * Main run function for the application master
-   *
-   * @throws YarnException
-   * @throws IOException
-   */
-  @SuppressWarnings({ "unchecked" })
-  public boolean run() throws YarnException, IOException {
-    AMRMClientAsync.CallbackHandler allocListener = new RMCallbackHandler();
-    resourceManager =
-        AMRMClientAsync.createAMRMClientAsync(1000, allocListener);
-    resourceManager.init(conf);
-    resourceManager.start();
+		return true;
+	}
 
-    containerListener = new NMCallbackHandler();
-    nmClientAsync = new NMClientAsyncImpl(containerListener);
-    nmClientAsync.init(conf);
-    nmClientAsync.start();
+	/**
+	 * Helper function to print usage
+	 *
+	 * @param opts Parsed command line options
+	 */
+	private void printUsage(Options opts) {
+		new HelpFormatter().printHelp("ApplicationMaster", opts);
+	}
 
-    // Setup local RPC Server to accept status requests directly from clients
-    // TODO need to setup a protocol for client to be able to communicate to
-    // the RPC server
-    // TODO use the rpc port info to register with the RM for the client to
-    // send requests to this app master
+	private void initializeAppMaster() {
+		startResourceManager();
+		try {
+			registerAppMaster();
+		} catch (YarnException e) {
+			// TODO Auto-generated catch block
+			e.printStackTrace();
+		} catch (IOException e) {
+			// TODO Auto-generated catch block
+			e.printStackTrace();
+		}
+	}
+	/*
+	 * NEW: Function to start resource manager
+	 */
+	private void startResourceManager() {
+		AMRMClientAsync.CallbackHandler allocListener = new RMCallbackHandler();
+		resourceManager =
+				AMRMClientAsync.createAMRMClientAsync(1000, allocListener);
+		resourceManager.init(conf);
+		resourceManager.start();
+		
+	}
+	
+	private void registerAppMaster() throws YarnException, IOException {
+		RegisterApplicationMasterResponse response = resourceManager
+				.registerApplicationMaster(appMasterHostname, appMasterRpcPort,
+						appMasterTrackingUrl);
+	}
+	
+	private void exitAppMaster() {
+		
+		// unregister application master
+		try {
+			resourceManager.unregisterApplicationMaster(FinalApplicationStatus.SUCCEEDED, null, null);
+			LOG.info("Anand: Unregister Appmaster is done");
+		} catch (YarnException ex) {
+			LOG.error("Failed to unregister application", ex);
+		} catch (IOException e) {
+			LOG.error("Failed to unregister application", e);
+		}
+		
+		// Stop Resource Manager		
+		resourceManager.stop();
+	}
+	
+	/**
+	 * Main run function for the application master
+	 *
+	 * @throws YarnException
+	 * @throws IOException
+	 */
+	@SuppressWarnings({ "unchecked" })
+	public boolean run(String nodeStr) throws YarnException, IOException {
+		
+		/*
+		 * FIXME: Un-comment following code  
+		 */
+		/*AMRMClientAsync.CallbackHandler allocListener = new RMCallbackHandler();
+		resourceManager =
+				AMRMClientAsync.createAMRMClientAsync(1000, allocListener);
+		resourceManager.init(conf);
+		resourceManager.start();
+*/
+		done = false;
+		containerListener = new NMCallbackHandler();
+		nmClientAsync = new NMClientAsyncImpl(containerListener);
+		nmClientAsync.init(conf);
+		nmClientAsync.start();
 
-    // Register self with ResourceManager
-    // This will start heartbeating to the RM
-    RegisterApplicationMasterResponse response = resourceManager
-        .registerApplicationMaster(appMasterHostname, appMasterRpcPort,
-            appMasterTrackingUrl);
-    // Dump out information about cluster capability as seen by the
-    // resource manager
-    int maxMem = response.getMaximumResourceCapability().getMemory();
-    LOG.info("Max mem capabililty of resources in this cluster " + maxMem);
+		for (int i = 0; i < numTotalContainers; ++i) {
+			ContainerRequest containerAsk = setupContainerAskForRM(nodeStr);
+			resourceManager.addContainerRequest(containerAsk);
+			System.out.println("Container is launched on node = " + containerAsk.getNodes());
+		}
+		numRequestedContainers.set(numTotalContainers);
 
-    // A resource ask cannot exceed the max.
-    if (containerMemory > maxMem) {
-      LOG.info("Container memory specified above max threshold of cluster."
-          + " Using max value." + ", specified=" + containerMemory + ", max="
-          + maxMem);
-      containerMemory = maxMem;
-    }
+		/*while (!done) {
+			try {
+				Thread.sleep(200);
+			} catch (InterruptedException ex) {}
+		}
+		finish();
+*/
+		return true;
+	}
 
+	private void finish() {
+		// Join all launched threads
+		// needed for when we time out
+		// and we need to release containers
+		for (Thread launchThread : launchThreads) {
+			try {
+				launchThread.join(10000);
+			} catch (InterruptedException e) {
+				LOG.info("Exception thrown in thread join: " + e.getMessage());
+				e.printStackTrace();
+			}
+		}
 
-    // Setup ask for containers from RM
-    // Send request for containers to RM
-    // Until we get our fully allocated quota, we keep on polling RM for
-    // containers
-    // Keep looping until all the containers are launched and shell script
-    // executed on them ( regardless of success/failure).
-    for (int i = 0; i < numTotalContainers; ++i) {
-      ContainerRequest containerAsk = setupContainerAskForRM(node);
-      resourceManager.addContainerRequest(containerAsk);
-      System.out.println("Container is launched on node = " + containerAsk.getNodes());
-    }
-    numRequestedContainers.set(numTotalContainers);
+		// When the application completes, it should stop all running containers
+		LOG.info("Application completed. Stopping running containers");
+		nmClientAsync.stop();
 
-    while (!done) {
-      try {
-        Thread.sleep(200);
-      } catch (InterruptedException ex) {}
-    }
-    finish();
-    
-    return success;
-  }
-  
-  private void finish() {
-    // Join all launched threads
-    // needed for when we time out
-    // and we need to release containers
-    for (Thread launchThread : launchThreads) {
-      try {
-        launchThread.join(10000);
-      } catch (InterruptedException e) {
-        LOG.info("Exception thrown in thread join: " + e.getMessage());
-        e.printStackTrace();
-      }
-    }
+		// When the application completes, it should send a finish application
+		// signal to the RM
+		LOG.info("Application completed. Signalling finish to RM");
 
-    // When the application completes, it should stop all running containers
-    LOG.info("Application completed. Stopping running containers");
-    nmClientAsync.stop();
+		FinalApplicationStatus appStatus;
+		String appMessage = null;
+		success = true;
+		if (numFailedContainers.get() == 0 && 
+				numCompletedContainers.get() == numTotalContainers) {
+			appStatus = FinalApplicationStatus.SUCCEEDED;
+		} else {
+			appStatus = FinalApplicationStatus.FAILED;
+			appMessage = "Diagnostics." + ", total=" + numTotalContainers
+					+ ", completed=" + numCompletedContainers.get() + ", allocated="
+					+ numAllocatedContainers.get() + ", failed="
+					+ numFailedContainers.get();
+			success = false;
+		}
+		
+		/*
+		 * FIXME: Remove following Comment
+		 */
+		/*try {
+			resourceManager.unregisterApplicationMaster(appStatus, appMessage, null);
+			LOG.info("Anand: Unregister Appmaster is done");
+		} catch (YarnException ex) {
+			LOG.error("Failed to unregister application", ex);
+		} catch (IOException e) {
+			LOG.error("Failed to unregister application", e);
+		}
+*/
+		done = true;
+		
+		/*
+		 * FIXME: Remove following comment
+		 */
+		
+		// resourceManager.stop();
+	}
 
-    // When the application completes, it should send a finish application
-    // signal to the RM
-    LOG.info("Application completed. Signalling finish to RM");
+	private class RMCallbackHandler implements AMRMClientAsync.CallbackHandler {
+		@SuppressWarnings("unchecked")
+		@Override
+		public void onContainersCompleted(List<ContainerStatus> completedContainers) {
+			LOG.info("Got response from RM for container ask, completedCnt="
+					+ completedContainers.size());
+			for (ContainerStatus containerStatus : completedContainers) {
+				LOG.info("Got container status for containerID="
+						+ containerStatus.getContainerId() + ", state="
+						+ containerStatus.getState() + ", exitStatus="
+						+ containerStatus.getExitStatus() + ", diagnostics="
+						+ containerStatus.getDiagnostics());
 
-    FinalApplicationStatus appStatus;
-    String appMessage = null;
-    success = true;
-    if (numFailedContainers.get() == 0 && 
-        numCompletedContainers.get() == numTotalContainers) {
-      appStatus = FinalApplicationStatus.SUCCEEDED;
-    } else {
-      appStatus = FinalApplicationStatus.FAILED;
-      appMessage = "Diagnostics." + ", total=" + numTotalContainers
-          + ", completed=" + numCompletedContainers.get() + ", allocated="
-          + numAllocatedContainers.get() + ", failed="
-          + numFailedContainers.get();
-      success = false;
-    }
-    try {
-      resourceManager.unregisterApplicationMaster(appStatus, appMessage, null);
-    } catch (YarnException ex) {
-      LOG.error("Failed to unregister application", ex);
-    } catch (IOException e) {
-      LOG.error("Failed to unregister application", e);
-    }
-    
-    done = true;
-    resourceManager.stop();
-  }
-  
-  private class RMCallbackHandler implements AMRMClientAsync.CallbackHandler {
-    @SuppressWarnings("unchecked")
-    @Override
-    public void onContainersCompleted(List<ContainerStatus> completedContainers) {
-      LOG.info("Got response from RM for container ask, completedCnt="
-          + completedContainers.size());
-      for (ContainerStatus containerStatus : completedContainers) {
-        LOG.info("Got container status for containerID="
-            + containerStatus.getContainerId() + ", state="
-            + containerStatus.getState() + ", exitStatus="
-            + containerStatus.getExitStatus() + ", diagnostics="
-            + containerStatus.getDiagnostics());
+				// non complete containers should not be here
+				assert (containerStatus.getState() == ContainerState.COMPLETE);
 
-        // non complete containers should not be here
-        assert (containerStatus.getState() == ContainerState.COMPLETE);
+				// increment counters for completed/failed containers
+				int exitStatus = containerStatus.getExitStatus();
+				if (0 != exitStatus) {
+					// container failed
+					if (ContainerExitStatus.ABORTED != exitStatus) {
+						// shell script failed
+						// counts as completed
+						numCompletedContainers.incrementAndGet();
+						numFailedContainers.incrementAndGet();
+					} else {
+						// container was killed by framework, possibly preempted
+						// we should re-try as the container was lost for some reason
+						numAllocatedContainers.decrementAndGet();
+						numRequestedContainers.decrementAndGet();
+						// we do not need to release the container as it would be done
+						// by the RM
+					}
+				} else {
+					// nothing to do
+					// container completed successfully
+					numCompletedContainers.incrementAndGet();
+					LOG.info("Container completed successfully." + ", containerId="
+							+ containerStatus.getContainerId());
+				}
+			}
 
-        // increment counters for completed/failed containers
-        int exitStatus = containerStatus.getExitStatus();
-        if (0 != exitStatus) {
-          // container failed
-          if (ContainerExitStatus.ABORTED != exitStatus) {
-            // shell script failed
-            // counts as completed
-            numCompletedContainers.incrementAndGet();
-            numFailedContainers.incrementAndGet();
-          } else {
-            // container was killed by framework, possibly preempted
-            // we should re-try as the container was lost for some reason
-            numAllocatedContainers.decrementAndGet();
-            numRequestedContainers.decrementAndGet();
-            // we do not need to release the container as it would be done
-            // by the RM
-          }
-        } else {
-          // nothing to do
-          // container completed successfully
-          numCompletedContainers.incrementAndGet();
-          LOG.info("Container completed successfully." + ", containerId="
-              + containerStatus.getContainerId());
-        }
-      }
-      
-      // ask for more containers if any failed
-      int askCount = numTotalContainers - numRequestedContainers.get();
-      numRequestedContainers.addAndGet(askCount);
+			// ask for more containers if any failed
+			int askCount = numTotalContainers - numRequestedContainers.get();
+			numRequestedContainers.addAndGet(askCount);
 
-      if (askCount > 0) {
-        for (int i = 0; i < askCount; ++i) {
-          System.out.println("I came into askCount");
-          ContainerRequest containerAsk = setupContainerAskForRM(node);
-          resourceManager.addContainerRequest(containerAsk);
-        }
-      }
-      
-      if (numCompletedContainers.get() == numTotalContainers) {
-        done = true;
-      }
-    }
+			if (askCount > 0) {
+				for (int i = 0; i < askCount; ++i) {
+					System.out.println("I came into askCount");
+					//FIXME: Change this hard coded value 
+					ContainerRequest containerAsk = setupContainerAskForRM("master");
+					resourceManager.addContainerRequest(containerAsk);
+				}
+			}
 
-    @Override
-    public void onContainersAllocated(List<Container> allocatedContainers) {
-      LOG.info("Got response from RM for container ask, allocatedCnt="
-          + allocatedContainers.size());
-      numAllocatedContainers.addAndGet(allocatedContainers.size());
-      for (Container allocatedContainer : allocatedContainers) {
-        LOG.info("Launching shell command on a new container."
-            + ", containerId=" + allocatedContainer.getId()
-            + ", containerNode=" + allocatedContainer.getNodeId().getHost()
-            + ":" + allocatedContainer.getNodeId().getPort()
-            + ", containerNodeURI=" + allocatedContainer.getNodeHttpAddress()
-            + ", containerResourceMemory"
-            + allocatedContainer.getResource().getMemory());
-        // + ", containerToken"
-        // +allocatedContainer.getContainerToken().getIdentifier().toString());
+			if (numCompletedContainers.get() == numTotalContainers) {
+				done = true;
+			}
+		}
 
-        LaunchContainerRunnable runnableLaunchContainer =
-            new LaunchContainerRunnable(allocatedContainer, containerListener);
-        Thread launchThread = new Thread(runnableLaunchContainer);
+		@Override
+		public void onContainersAllocated(List<Container> allocatedContainers) {
+			LOG.info("Got response from RM for container ask, allocatedCnt="
+					+ allocatedContainers.size());
+			numAllocatedContainers.addAndGet(allocatedContainers.size());
+			for (Container allocatedContainer : allocatedContainers) {
+				LOG.info("Launching shell command on a new container."
+						+ ", containerId=" + allocatedContainer.getId()
+						+ ", containerNode=" + allocatedContainer.getNodeId().getHost()
+						+ ":" + allocatedContainer.getNodeId().getPort()
+						+ ", containerNodeURI=" + allocatedContainer.getNodeHttpAddress()
+						+ ", containerResourceMemory"
+						+ allocatedContainer.getResource().getMemory());
+				// + ", containerToken"
+				// +allocatedContainer.getContainerToken().getIdentifier().toString());
 
-        // launch and start the container on a separate thread to keep
-        // the main thread unblocked
-        // as all containers may not be allocated at one go.
-        launchThreads.add(launchThread);
-        launchThread.start();
-      }
-    }
+				LaunchContainerRunnable runnableLaunchContainer =
+						new LaunchContainerRunnable(allocatedContainer, containerListener);
+				Thread launchThread = new Thread(runnableLaunchContainer);
 
-    @Override
-    public void onShutdownRequest() {
-      done = true;
-    }
+				// launch and start the container on a separate thread to keep
+				// the main thread unblocked
+				// as all containers may not be allocated at one go.
+				launchThreads.add(launchThread);
+				launchThread.start();
+			}
+		}
 
-    @Override
-    public void onNodesUpdated(List<NodeReport> updatedNodes) {}
+		@Override
+		public void onShutdownRequest() {
+			done = true;
+		}
 
-    @Override
-    public float getProgress() {
-      // set progress to deliver to RM on next heartbeat
-      float progress = (float) numCompletedContainers.get()
-          / numTotalContainers;
-      return progress;
-    }
+		@Override
+		public void onNodesUpdated(List<NodeReport> updatedNodes) {}
 
-    @Override
-    public void onError(Throwable e) {
-      done = true;
-      resourceManager.stop();
-    }
-  }
+		@Override
+		public float getProgress() {
+			// set progress to deliver to RM on next heartbeat
+			float progress = (float) numCompletedContainers.get()
+					/ numTotalContainers;
+			return progress;
+		}
 
-  private class NMCallbackHandler implements NMClientAsync.CallbackHandler {
+		@Override
+		public void onError(Throwable e) {
+			done = true;
+			resourceManager.stop();
+		}
+	}
 
-    private ConcurrentMap<ContainerId, Container> containers =
-        new ConcurrentHashMap<ContainerId, Container>();
+	private class NMCallbackHandler implements NMClientAsync.CallbackHandler {
 
-    public void addContainer(ContainerId containerId, Container container) {
-      containers.putIfAbsent(containerId, container);
-    }
+		private ConcurrentMap<ContainerId, Container> containers =
+				new ConcurrentHashMap<ContainerId, Container>();
 
-    @Override
-    public void onContainerStopped(ContainerId containerId) {
-      if (LOG.isDebugEnabled()) {
-        LOG.debug("Succeeded to stop Container " + containerId);
-      }
-      containers.remove(containerId);
-    }
+		public void addContainer(ContainerId containerId, Container container) {
+			containers.putIfAbsent(containerId, container);
+		}
 
-    @Override
-    public void onContainerStatusReceived(ContainerId containerId,
-        ContainerStatus containerStatus) {
-      if (LOG.isDebugEnabled()) {
-        LOG.debug("Container Status: id=" + containerId + ", status=" +
-            containerStatus);
-      }
-    }
+		@Override
+		public void onContainerStopped(ContainerId containerId) {
+			if (LOG.isDebugEnabled()) {
+				LOG.debug("Succeeded to stop Container " + containerId);
+			}
+			containers.remove(containerId);
+		}
 
-    @Override
-    public void onContainerStarted(ContainerId containerId,
-        Map<String, ByteBuffer> allServiceResponse) {
-      if (LOG.isDebugEnabled()) {
-        LOG.debug("Succeeded to start Container " + containerId);
-      }
-      Container container = containers.get(containerId);
-      if (container != null) {
-        nmClientAsync.getContainerStatusAsync(containerId, container.getNodeId());
-      }
-    }
+		@Override
+		public void onContainerStatusReceived(ContainerId containerId,
+				ContainerStatus containerStatus) {
+			if (LOG.isDebugEnabled()) {
+				LOG.debug("Container Status: id=" + containerId + ", status=" +
+						containerStatus);
+			}
+		}
 
-    @Override
-    public void onStartContainerError(ContainerId containerId, Throwable t) {
-      LOG.error("Failed to start Container " + containerId);
-      containers.remove(containerId);
-    }
+		@Override
+		public void onContainerStarted(ContainerId containerId,
+				Map<String, ByteBuffer> allServiceResponse) {
+			if (LOG.isDebugEnabled()) {
+				LOG.debug("Succeeded to start Container " + containerId);
+			}
+			Container container = containers.get(containerId);
+			if (container != null) {
+				nmClientAsync.getContainerStatusAsync(containerId, container.getNodeId());
+			}
+		}
 
-    @Override
-    public void onGetContainerStatusError(
-        ContainerId containerId, Throwable t) {
-      LOG.error("Failed to query the status of Container " + containerId);
-    }
+		@Override
+		public void onStartContainerError(ContainerId containerId, Throwable t) {
+			LOG.error("Failed to start Container " + containerId);
+			containers.remove(containerId);
+		}
 
-    @Override
-    public void onStopContainerError(ContainerId containerId, Throwable t) {
-      LOG.error("Failed to stop Container " + containerId);
-      containers.remove(containerId);
-    }
-  }
+		@Override
+		public void onGetContainerStatusError(
+				ContainerId containerId, Throwable t) {
+			LOG.error("Failed to query the status of Container " + containerId);
+		}
 
-  /**
-   * Thread to connect to the {@link ContainerManagementProtocol} and launch the container
-   * that will execute the shell command.
-   */
-  private class LaunchContainerRunnable implements Runnable {
+		@Override
+		public void onStopContainerError(ContainerId containerId, Throwable t) {
+			LOG.error("Failed to stop Container " + containerId);
+			containers.remove(containerId);
+		}
+	}
 
-    // Allocated container
-    Container container;
+	/**
+	 * Thread to connect to the {@link ContainerManagementProtocol} and launch the container
+	 * that will execute the shell command.
+	 */
+	private class LaunchContainerRunnable implements Runnable {
 
-    NMCallbackHandler containerListener;
+		// Allocated container
+		Container container;
 
-    /**
-     * @param lcontainer Allocated container
-     * @param containerListener Callback handler of the container
-     */
-    public LaunchContainerRunnable(
-        Container lcontainer, NMCallbackHandler containerListener) {
-      this.container = lcontainer;
-      this.containerListener = containerListener;
-    }
+		NMCallbackHandler containerListener;
 
-    @Override
-    /**
-     * Connects to CM, sets up container launch context 
-     * for shell command and eventually dispatches the container 
-     * start request to the CM. 
-     */
-    public void run() {
-      LOG.info("Setting up container launch container for containerid="
-          + container.getId());
-      ContainerLaunchContext ctx = Records
-          .newRecord(ContainerLaunchContext.class);
+		/**
+		 * @param lcontainer Allocated container
+		 * @param containerListener Callback handler of the container
+		 */
+		public LaunchContainerRunnable(
+				Container lcontainer, NMCallbackHandler containerListener) {
+			this.container = lcontainer;
+			this.containerListener = containerListener;
+		}
 
-      // Set the local resources
-      Map<String, LocalResource> localResources = new HashMap<String, LocalResource>();
+		@Override
+		/**
+		 * Connects to CM, sets up container launch context 
+		 * for shell command and eventually dispatches the container 
+		 * start request to the CM. 
+		 */
+		public void run() {
+			
+			/*System.out.println(Thread.currentThread().getStackTrace());
+			System.out.println("Anand: \n");*/
+			LOG.info("Setting up container launch container for containerid="
+					+ container.getId());
+			ContainerLaunchContext ctx = Records
+					.newRecord(ContainerLaunchContext.class);
 
-      // The container for the eventual shell commands needs its own local
-      // resources too.
-      // copied and made available to the container.
-      if (!shellDbScriptPath.isEmpty()) {
-        LocalResource shellDbRsrc = Records.newRecord(LocalResource.class);
-        shellDbRsrc.setType(LocalResourceType.FILE);
-        shellDbRsrc.setVisibility(LocalResourceVisibility.APPLICATION);
-        try {
-          shellDbRsrc.setResource(ConverterUtils.getYarnUrlFromURI(new URI(
-              shellDbScriptPath)));
-        } catch (URISyntaxException e) {
-          LOG.error("Error when trying to use shell script path specified"
-              + " in env, path=" + shellDbScriptPath);
-          e.printStackTrace();
+			// Set the local resources
+			Map<String, LocalResource> localResources = new HashMap<String, LocalResource>();
 
-          // A failure scenario on bad input such as invalid shell script path
-          // We know we cannot continue launching the container
-          // so we should release it.
-          // TODO
-          numCompletedContainers.incrementAndGet();
-          numFailedContainers.incrementAndGet();
-          return;
-        }
-        shellDbRsrc.setTimestamp(shellDbScriptPathTimestamp);
-        shellDbRsrc.setSize(shellDbScriptPathLen);
-        localResources.put(ExecDbShellStringPath, shellDbRsrc);
-        System.out.println("Anand : resource URL " +shellDbRsrc.getResource());
-      }
+			// The container for the eventual shell commands needs its own local
+			// resources too.
+			// copied and made available to the container.
+			if (!shellDbScriptPath.isEmpty()) {
+				LocalResource shellDbRsrc = Records.newRecord(LocalResource.class);
+				shellDbRsrc.setType(LocalResourceType.FILE);
+				shellDbRsrc.setVisibility(LocalResourceVisibility.APPLICATION);
+				try {
+					shellDbRsrc.setResource(ConverterUtils.getYarnUrlFromURI(new URI(
+							shellDbScriptPath)));
+				} catch (URISyntaxException e) {
+					LOG.error("Error when trying to use shell script path specified"
+							+ " in env, path=" + shellDbScriptPath);
+					e.printStackTrace();
 
-      if (!shellWrapScriptPath.isEmpty()) {
-        LocalResource shellWrapRsrc = Records.newRecord(LocalResource.class);
-        shellWrapRsrc.setType(LocalResourceType.FILE);
-        shellWrapRsrc.setVisibility(LocalResourceVisibility.APPLICATION);
-        try {
-          shellWrapRsrc.setResource(ConverterUtils.getYarnUrlFromURI(new URI(
-              shellWrapScriptPath)));
-        } catch (URISyntaxException e) {
-          LOG.error("Error when trying to use shell script path specified"
-              + " in env, path=" + shellWrapScriptPath);
-          e.printStackTrace();
+					// A failure scenario on bad input such as invalid shell script path
+					// We know we cannot continue launching the container
+					// so we should release it.
+					// TODO
+					numCompletedContainers.incrementAndGet();
+					numFailedContainers.incrementAndGet();
+					return;
+				}
+				shellDbRsrc.setTimestamp(shellDbScriptPathTimestamp);
+				shellDbRsrc.setSize(shellDbScriptPathLen);
+				localResources.put(ExecDbShellStringPath, shellDbRsrc);
+				System.out.println("Anand : resource URL " +shellDbRsrc.getResource());
+			}
 
-          // A failure scenario on bad input such as invalid shell script path
-          // We know we cannot continue launching the container
-          // so we should release it.
-          // TODO
-          numCompletedContainers.incrementAndGet();
-          numFailedContainers.incrementAndGet();
-          return;
-        }
-        shellWrapRsrc.setTimestamp(shellWrapScriptPathTimestamp);
-        shellWrapRsrc.setSize(shellWrapScriptPathLen);
-        localResources.put(ExecWrapShellStringPath, shellWrapRsrc);
-        System.out.println("Anand : resource URL " +shellWrapRsrc.getResource());
-      }
-      
-      ctx.setLocalResources(localResources);
+			if (!shellWrapScriptPath.isEmpty()) {
+				LocalResource shellWrapRsrc = Records.newRecord(LocalResource.class);
+				shellWrapRsrc.setType(LocalResourceType.FILE);
+				shellWrapRsrc.setVisibility(LocalResourceVisibility.APPLICATION);
+				try {
+					shellWrapRsrc.setResource(ConverterUtils.getYarnUrlFromURI(new URI(
+							shellWrapScriptPath)));
+				} catch (URISyntaxException e) {
+					LOG.error("Error when trying to use shell script path specified"
+							+ " in env, path=" + shellWrapScriptPath);
+					e.printStackTrace();
 
-      // Set the necessary command to execute on the allocated container
-      //First command: python
-      Vector<CharSequence> vargs = new Vector<CharSequence>(5);
+					// A failure scenario on bad input such as invalid shell script path
+					// We know we cannot continue launching the container
+					// so we should release it.
+					// TODO
+					numCompletedContainers.incrementAndGet();
+					numFailedContainers.incrementAndGet();
+					return;
+				}
+				shellWrapRsrc.setTimestamp(shellWrapScriptPathTimestamp);
+				shellWrapRsrc.setSize(shellWrapScriptPathLen);
+				localResources.put(ExecWrapShellStringPath, shellWrapRsrc);
+				System.out.println("Anand : resource URL " +shellWrapRsrc.getResource());
+			}
+		
+			ctx.setLocalResources(localResources);
 
-      // Set executable command
-      vargs.add("bash");
-      // Set shell script path
-      if (!shellDbScriptPath.isEmpty()) {
-        vargs.add(ExecWrapShellStringPath);
-        System.out.println("Anand: Added Shell Script");
-      }
-      //We need to add the appId as a arg
-      vargs.add(String.valueOf(appAttemptID.getApplicationId().getId()));
-      
-      // pass query as command line parameter 
-      vargs.add("'" + query + "'");
-      // Add log redirect params
-      vargs.add("1>" + ApplicationConstants.LOG_DIR_EXPANSION_VAR + "/stdout");
-      vargs.add("2>" + ApplicationConstants.LOG_DIR_EXPANSION_VAR + "/stderr");
+			// Set the necessary command to execute on the allocated container
+			//First command: python
+			Vector<CharSequence> vargs = new Vector<CharSequence>(5);
 
-      // Get DB commmand
-      StringBuilder dbCommand = new StringBuilder();
-      for (CharSequence str : vargs) {
-        dbCommand.append(str).append(" ");
-      }
-      LOG.info("DFW: Final DB Command: " + dbCommand.toString());
+			// Set executable command
+			vargs.add("python");
+			// Set shell script path
+			if (!shellDbScriptPath.isEmpty()) {
+				vargs.add(ExecWrapShellStringPath);
+				System.out.println("Anand: Added Shell Script");
+			}
+			
+			// NEW1:
+			vargs.add(clientHostName);
+			vargs.add(""+ clientPortNo);
+			vargs.add(String.valueOf(appAttemptID.getApplicationId().getId()));
+			
+			// Add log redirect params
+			vargs.add("1>" + ApplicationConstants.LOG_DIR_EXPANSION_VAR + "/stdout");
+			vargs.add("2>" + ApplicationConstants.LOG_DIR_EXPANSION_VAR + "/stderr");
 
-      List<String> commands = new ArrayList<String>();
-      commands.add(dbCommand.toString());
-      
-      ctx.setCommands(commands);
+			// Get DB commmand
+			StringBuilder dbCommand = new StringBuilder();
+			for (CharSequence str : vargs) {
+				dbCommand.append(str).append(" ");
+			}
+			LOG.info("DFW: Final DB Command: " + dbCommand.toString());
 
-      containerListener.addContainer(container.getId(), container);
-      nmClientAsync.startContainerAsync(container, ctx);
-    }
-  }
+			List<String> commands = new ArrayList<String>();
+			commands.add(dbCommand.toString());
 
-  /**
-   * Setup the request that will be sent to the RM for the container ask.
-   *
-   * @param numContainers Containers to ask for from RM
-   * @return the setup ResourceRequest to be sent to RM
-   */
-  /*
-   * TODO Anand May be you need to specify node in new container request 
-   * so pass that as argument to function
-   */
-  private ContainerRequest setupContainerAskForRM(String node) {
-    // setup requirements for hosts
-    // using * as any host will do for the distributed shell app
-    // set the priority for the request
-    Priority pri = Records.newRecord(Priority.class);
-    // TODO - what is the range for priority? how to decide?
-    pri.setPriority(requestPriority);
-    
-    //** Anand start 
-    String [] nodes = new String[1];
-    nodes[0] = new String(node.toString()); 
-    //** End
-    
-    // Set up resource type requirements
-    // For now, only memory is supported so we set memory requirements
-    Resource capability = Records.newRecord(Resource.class);
-    capability.setMemory(containerMemory);
-    
-    ContainerRequest request = new ContainerRequest(capability, nodes, null,
-        pri, false);
-    LOG.info("DFW: Requested container ask: " + request.toString());
-    return request;
-  }
+			ctx.setCommands(commands);
+
+			containerListener.addContainer(container.getId(), container);
+			nmClientAsync.startContainerAsync(container, ctx);
+		}
+	}
+
+	/**
+	 * Setup the request that will be sent to the RM for the container ask.
+	 *
+	 * @param numContainers Containers to ask for from RM
+	 * @return the setup ResourceRequest to be sent to RM
+	 */
+	/*
+	 * TODO Anand May be you need to specify node in new container request 
+	 * so pass that as argument to function
+	 */
+	private ContainerRequest setupContainerAskForRM(String node) {
+		// setup requirements for hosts
+		// using * as any host will do for the distributed shell app
+		// set the priority for the request
+		Priority pri = Records.newRecord(Priority.class);
+		// TODO - what is the range for priority? how to decide?
+		pri.setPriority(requestPriority);
+
+		//** Anand start 
+		String [] nodes = new String[1];
+		nodes[0] = new String(node.toString()); 
+		//** End
+
+		// Set up resource type requirements
+		// For now, only memory is supported so we set memory requirements
+		Resource capability = Records.newRecord(Resource.class);
+		capability.setMemory(containerMemory);
+
+		ContainerRequest request = new ContainerRequest(capability, nodes, null,
+				pri, false);
+		LOG.info("DFW: Requested container ask: " + request.toString());
+		return request;
+	}
 }
 
