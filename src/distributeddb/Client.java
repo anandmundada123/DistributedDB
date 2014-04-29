@@ -9,6 +9,7 @@ import java.io.InputStreamReader;
 import java.net.UnknownHostException;
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 import java.util.Vector;
@@ -98,6 +99,8 @@ public class Client {
 	private Options opts;
 	// TCPServer object to get queries and return results
 	private TCPServer tcpServer;
+	// Partitioner object
+	private DDBPartitioner dbPartitioner;
 	// Application master host name
 	private String appMasterHostName;
 	// Client Host Name
@@ -240,6 +243,7 @@ public class Client {
 		// New: We will find out free port number
 		// DFW: always use the same port
 		clientListentPort = 12345;
+		dbPartitioner = new DDBPartitioner(LOG);
 
 		// Set up the server
 		try {
@@ -310,26 +314,45 @@ public class Client {
 	 * String s = br.readLine(); return s; }
 	 */
 	private static void writeResultToConsole(TCPServer tcp, ChannelHandlerContext ctx, FileSystem fs,
-			String nodeName) throws IOException, InterruptedException {
-		// First copy the output file from HDFS to local
-		String fileName = new String("/tmp/" + nodeName);
-		Path ansSrc = new Path(fs.getHomeDirectory(), nodeName);
-		Path ansDst = new Path(fileName);
-		LOG.info("fs.getHomeDirectory " + fs.getHomeDirectory().getName());
-		LOG.info("ansSrc: " + ansSrc.getName());
-		LOG.info("ansDst: " + ansDst.getName());
-		try {
-			fs.moveToLocalFile(ansSrc, ansDst);
-		} catch (IOException e) {
-			LOG.error("Unable to copy output file to local directory: "
-					+ e.getMessage());
+			List<String> nodeNames, String selectStr, String table, String where) throws IOException, InterruptedException {
+		
+		//Setup the process string
+		List<String> processArgs = new ArrayList<String>();
+		processArgs.add("bash");
+		processArgs.add("gather_sqlite_results.sh");
+		processArgs.add(selectStr);
+		processArgs.add(table);
+		processArgs.add(where);
+		LOG.info("Initial command list: " + processArgs);
+		
+		//Make a list of stuff we need to delete later
+		List<Path> deleteMe = new ArrayList<Path>();
+		
+		//First copy out the files from HDFS to local (all together)
+		for(String nodeName: nodeNames) {
+            LOG.info("outputBlock: " + nodeName);
+            // First copy the output file from HDFS to local
+            String fileName = new String("/tmp/" + nodeName);
+            
+            //Add to the fileNames list for the Process call
+            processArgs.add(fileName);
+            
+            Path ansSrc = new Path(fs.getHomeDirectory(), nodeName);
+            Path ansDst = new Path(fileName);
+            
+            //Keep track of stuff to delete later
+            deleteMe.add(ansSrc);
+            deleteMe.add(ansDst);
+            
+            try {
+                fs.moveToLocalFile(ansSrc, ansDst);
+            } catch (IOException e) {
+                LOG.error("Unable to copy output file to local directory: "
+                        + e.getMessage());
+            }
 		}
 
-		
-		String cmd = "bash gather_sqlite_results.sh \"select *\" test \"\" " + fileName;
-		LOG.info("Executing cmd: " + cmd);
-				
-		ProcessBuilder builder = new ProcessBuilder("bash", "gather_sqlite_results.sh", "select *", "test", "", fileName);
+		ProcessBuilder builder = new ProcessBuilder(processArgs);
 	    Process process = builder.start();
 	    InputStream is = process.getInputStream();
 	    InputStreamReader isr = new InputStreamReader(is);
@@ -340,16 +363,14 @@ public class Client {
 	    	output = output.concat(line).concat("\n");
 	    }
 	    
-	    LOG.info("Output: " + output);
+	    //LOG.info("Output: " + output);
 		
 		tcp.sendCtxMessage(ctx, output);
 		
 		// Delete the file after reading from tmp and HDFS
-		/*
-		 * FIXME: uncomment following lines
-		 */
-		// fs.delete(ansSrc, false);
-		// fs.delete(ansDst, false);
+		for(Path p: deleteMe) {
+			fs.delete(p, false);
+		}
 
 		// FIXME: right now writing to console
 		// Fix it to write to tcp connection
@@ -688,6 +709,8 @@ public class Client {
 				if (msgArray.length == 3) {
 					LOG.info("[REGISTER] Container at " + msgArray[1] + ":"
 							+ msgArray[2]);
+                    // Register the node for our Partitioner
+                    dbPartitioner.registerNode(msgArray[1]);
 					tcpServer.registerHost(msgArray[1], ctx);
 				} else {
 					LOG.error("[REGISTER] Got message with less than 3 arguments from container");
@@ -719,22 +742,108 @@ public class Client {
 			ChannelHandlerContext ctx = (ChannelHandlerContext) tmp.get(0);
 			String query = (String) tmp.get(1);
 			LOG.info("[QUERY] From: " + ctx.getChannel().toString() + " query: " + query);
-			if (query.startsWith("exit")) {
+
+			/*
+			 * Special Commands:
+			 * 	!nodes: print list of node names
+			 *  !partitions: print explanation of partitions
+			 *  !exit: quit
+			 */
+			if (query.startsWith("!help")) {
+				String resp = "========== HELP ==========\n" + 
+								"!nodes      : send a list of nodes\n" + 
+								"!partitions : print the partition data\n" +
+								"!exit       : Exit and kill the application\n";
+				tcpServer.sendCtxMessage(ctx, resp);
+				continue;
+			}
+			if (query.startsWith("!nodes")) {
+				tcpServer.sendCtxMessage(ctx, nodeList.toString() + "\n");
+				continue;
+			}
+			if (query.startsWith("!partitions")) {
+				tcpServer.sendCtxMessage(ctx, dbPartitioner.explain() + "\n");
+				continue;
+			}
+			if (query.startsWith("!exit")) {
 				LOG.info("[QUERY] Exiting as got exit from user");
-				// TODO
-				/*
-				 * if(client != null) client.closeConnection(); client = new
-				 * TCPClient(appMasterHostName, appMasterPortNumber);
-				 * client.init(); client.sendMsg("exit");
-				 * //client.closeConnection();
-				 */
 				tcpServer.close();
 				forceKillApplication(appId);
 				System.exit(0);
 			}
+			
+			// Now the query is sent to the Partitioner which returns back to us a map of operations we must perform
+			try {
+				Map<String, String> operations = dbPartitioner.parseQuery(query.trim());
+				LOG.info("[QUERY] Mapped operations: " + operations);
+				
+				List<String> outputBlocks = new ArrayList<String>();
+				
+				// Now send the query to the nodes specified
+				Iterator<Map.Entry<String, String>> it = operations.entrySet().iterator();
+				while(it.hasNext()) {
+					Map.Entry<String, String> p = (Map.Entry<String, String>)it.next();
+					LOG.info("[QUERY] Sending query to: " + p.getKey());
+					
+					// Now forward query to specific node
+					tcpServer.sendHostMessage(p.getKey(), p.getValue());
+				
+                    // wait for reply from Node
+                    LOG.info("[QUERY]: Waiting for response");
+                    List<Object> respTmp = tcpServer.getNextMessage();
+                    ChannelHandlerContext respCtx = (ChannelHandlerContext) respTmp.get(0);
+                    String resp = (String) respTmp.get(1);
+                    LOG.info("[QUERY]: Got result from: " + respCtx.getChannel().toString() + " Container: " + resp);
+                
+                    /*
+                     * There are 3 specific types of results the node could send us:
+                     *   SUCCESS: The query doesn't result in data (create, insert)
+                     *   OUTPUT: Its a select query, there should be a space followed by the DB name to use
+                     *   ERROR: Something bad happened, send this string directly to the user
+                     */
+                    if(resp.contains("SUCCESS")) {
+                        //Just tell the user everything worked
+                        tcpServer.sendCtxMessage(ctx, resp + "\n");
+                    } else if(resp.contains("OUTPUT")) {
+                        int spIndex = query.indexOf(" ");
+                        if (spIndex == -1) {
+                            LOG.error("OUTPUT not properly formatted: " + resp);
+                            tcpServer.sendResult("ERROR discovered ERROR200\n");
+                            continue;
+                        }
+
+                        // Get the output name from the resp
+                        String blk = resp.substring(spIndex + 1);
+                        //Save the block for later (when we have them all)
+                        outputBlocks.add(blk);
+                        
+                    } else if(resp.contains("ERROR")) {
+                        //Just tell the user the error message
+                        tcpServer.sendCtxMessage(ctx, resp + "\n");
+                    }
+				}
+				
+				//Now all queries have been sent and responded to, if we have output blocks deal with those
+				if(outputBlocks.size() > 0) {
+					//To properly display the results we need to breakdown some components of the query
+					String selectStr = dbPartitioner.getSelectStr(query.trim());
+					String table = dbPartitioner.getTableStr(query.trim());
+					String where = dbPartitioner.getWhereStr(query.trim());
+					
+					//FIXME: for now you MUST have a where clause if you want to do ORDER BY, LIMIT, etc..
+					if(where.compareTo("") != 0) {
+						where = "where " + where;
+					}
+
+					writeResultToConsole(tcpServer, ctx, fs, outputBlocks, "select " + selectStr, table, where);
+				}
+			} catch (Exception e1) {
+				// TODO Auto-generated catch block
+				e1.printStackTrace();
+			}
 
 			// Format check
-			int ind = query.indexOf(".");
+			/*int ind = query.indexOf(".");
 			if (ind == -1) {
 				LOG.info("Query should start with node name");
 				tcpServer.sendResult("ERROR Expected: <node>.<query>\n");
@@ -746,21 +855,8 @@ public class Client {
 			query = query.substring(ind + 1);
 			
 			// Now forward query to specific node
-			tcpServer.sendHostMessage(node, query);
+			tcpServer.sendHostMessage(node, query);*/
 			
-			// wait for reply from Node
-			LOG.info("[QUERY]: Waiting for response");
-            LOG.info("++++ CAN HANDLE STUFF: " + ctx.canHandleDownstream() + " AND " + ctx.canHandleUpstream());
-			List<Object> respTmp = tcpServer.getNextMessage();
-			ChannelHandlerContext respCtx = (ChannelHandlerContext) respTmp.get(0);
-			String resp = (String) respTmp.get(1);
-			LOG.info("[QUERY]: Got result from: " + respCtx.getChannel().toString() + " Container: " + resp);
-			try {
-				writeResultToConsole(tcpServer, ctx, fs, resp);
-			} catch (InterruptedException e) {
-				// TODO Auto-generated catch block
-				e.printStackTrace();
-			}
 		}
 
 	}
