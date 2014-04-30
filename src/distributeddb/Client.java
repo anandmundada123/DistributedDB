@@ -737,11 +737,16 @@ public class Client {
 		 * and wait to get result from application master
 		 */
 		TCPClient client = null;
+		boolean performParallel = false;
+		boolean performTiming = false;
 		while (true) {
 			List<Object> tmp = tcpServer.getNextMessage();
 			ChannelHandlerContext ctx = (ChannelHandlerContext) tmp.get(0);
 			String query = (String) tmp.get(1);
 			LOG.info("[QUERY] From: " + ctx.getChannel().toString() + " query: " + query);
+
+			//Get the time from when the user hit enter
+			long startTime = System.currentTimeMillis();
 
 			/*
 			 * Special Commands:
@@ -751,9 +756,11 @@ public class Client {
 			 */
 			if (query.startsWith("!help")) {
 				String resp = "========== HELP ==========\n" + 
-								"!nodes      : send a list of nodes\n" + 
-								"!partitions : print the partition data\n" +
-								"!exit       : Exit and kill the application\n";
+								"!nodes           : send a list of nodes\n" + 
+								"!partitions      : print the partition data\n" +
+								"!parallel on|off : when sending queries perform in parallel or serial\n" +
+								"!timing on|off   : output time to complete operation in milliseconds\n" + 
+								"!exit            : Exit and kill the application\n";
 				tcpServer.sendCtxMessage(ctx, resp);
 				continue;
 			}
@@ -763,6 +770,30 @@ public class Client {
 			}
 			if (query.startsWith("!partitions")) {
 				tcpServer.sendCtxMessage(ctx, dbPartitioner.explain() + "\n");
+				continue;
+			}
+			if (query.startsWith("!parallel")) {
+				if(query.contains("on")) {
+					performParallel = true;
+					tcpServer.sendCtxMessage(ctx, "Parallel processing enabled\n");
+				} else if (query.contains("off")) {
+					performParallel = false;
+					tcpServer.sendCtxMessage(ctx, "Parallel processing disabled\n");
+				} else {
+					tcpServer.sendCtxMessage(ctx, "Valid args: on|off\n");
+				}
+				continue;
+			}
+			if (query.startsWith("!timing")) {
+				if(query.contains("on")) {
+					performTiming = true;
+					tcpServer.sendCtxMessage(ctx, "Timing enabled\n");
+				} else if (query.contains("off")) {
+					performTiming = false;
+					tcpServer.sendCtxMessage(ctx, "Timing disabled\n");
+				} else {
+					tcpServer.sendCtxMessage(ctx, "Valid args: on|off\n");
+				}
 				continue;
 			}
 			if (query.startsWith("!exit")) {
@@ -779,14 +810,36 @@ public class Client {
 				
 				List<String> outputBlocks = new ArrayList<String>();
 				
-				// Now send the query to the nodes specified
+				/*
+				 * Perform task in parallel
+				 */
+				if(performParallel){
+					// Now send the query to the nodes specified
+					Iterator<Map.Entry<String, String>> it = operations.entrySet().iterator();
+					while(it.hasNext()) {
+						Map.Entry<String, String> p = (Map.Entry<String, String>)it.next();
+						LOG.info("[QUERY] Sending query to: " + p.getKey());
+					
+						// Now forward query to specific node
+						tcpServer.sendHostMessage(p.getKey(), p.getValue());
+					}
+					
+				}
+				/*
+				 * Main loop happens regardless of serial or parallel
+				 */
 				Iterator<Map.Entry<String, String>> it = operations.entrySet().iterator();
 				while(it.hasNext()) {
 					Map.Entry<String, String> p = (Map.Entry<String, String>)it.next();
-					LOG.info("[QUERY] Sending query to: " + p.getKey());
 					
-					// Now forward query to specific node
-					tcpServer.sendHostMessage(p.getKey(), p.getValue());
+					/*
+					 * Performing serially:
+					 */
+					if(!performParallel){
+						LOG.info("[QUERY] Sending query to: " + p.getKey());
+						// Now forward query to specific node
+						tcpServer.sendHostMessage(p.getKey(), p.getValue());
+					}
 				
                     // wait for reply from Node
                     LOG.info("[QUERY]: Waiting for response");
@@ -836,6 +889,12 @@ public class Client {
 					}
 
 					writeResultToConsole(tcpServer, ctx, fs, outputBlocks, "select " + selectStr, table, where);
+				}
+				
+				// Print time if asked
+				if(performTiming) {
+					long endTime = System.currentTimeMillis();
+					tcpServer.sendCtxMessage(ctx, "Elapsed time: " + (endTime - startTime) + "ms\n");
 				}
 			} catch (Exception e1) {
 				// TODO Auto-generated catch block

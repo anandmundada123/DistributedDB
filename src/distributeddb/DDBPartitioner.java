@@ -50,7 +50,7 @@ public class DDBPartitioner {
 		while(it.hasNext()) {
 			Map.Entry<String, Partition> p = (Map.Entry<String, Partition>)it.next();
 			out += p.getKey() + "\n";
-			out += p.getValue().explain() + "\n";
+			out += p.getValue().explain();
 		}
 		
 		return out;
