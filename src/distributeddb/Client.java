@@ -8,6 +8,7 @@ import java.io.InputStream;
 import java.io.InputStreamReader;
 import java.net.UnknownHostException;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.HashMap;
 import java.util.Iterator;
 import java.util.List;
@@ -756,11 +757,13 @@ public class Client {
 			 */
 			if (query.startsWith("!help")) {
 				String resp = "========== HELP ==========\n" + 
-								"!nodes           : send a list of nodes\n" + 
-								"!partitions      : print the partition data\n" +
-								"!parallel on|off : when sending queries perform in parallel or serial\n" +
-								"!timing on|off   : output time to complete operation in seconds\n" + 
-								"!exit            : Exit and kill the application\n";
+								"!nodes             : send a list of nodes\n" + 
+								"!cmd <node> <msg>  : send command directly to <node>\n" +
+								"!syntax            : print the supported syntax for partition types\n" +
+								"!partitions        : print the partition data\n" +
+								"!parallel <on|off> : when sending queries perform in parallel or serial\n" +
+								"!timing <on|off>   : output time to complete operation in seconds\n" + 
+								"!exit              : Exit and kill the application\n";
 				tcpServer.sendCtxMessage(ctx, resp);
 				continue;
 			}
@@ -768,9 +771,56 @@ public class Client {
 				tcpServer.sendCtxMessage(ctx, nodeList.toString() + "\n");
 				continue;
 			}
+			if (query.startsWith("!syntax")) {
+				String resp = "Supported syntax for partition types:\n" +
+								"- All partition syntax relates to 'create' statements\n" + 
+								"- Explanations below are shown in the form: 'create table(stuff) PARTITIONSTRING'\n\n" +
+								"RANDOM:\n" +
+								"\tPARTITION BY RANDOM\n" +
+								"\tPARTITION BY RANDOM(X)\n" +
+								"\t  Description: Values will be inserted randomly into nodes of the cluster\n" +
+								"\t  Arguments:\n" +
+								"\t    '(X)' : Optional, integer, specifies to randomly pick a subset of nodes for this table, of size X\n" +
+								"ROUNDROBIN:\n" + 
+								"\tPARTITION BY ROUNDROBIN\n" +
+								"\tPARTITION BY ROUNDROBIN(X0,X1,...)\n" +
+								"\t  Description: Values will be inserted in a round robin fashion into nodes of the cluster\n" +
+								"\t  Arguments:\n" +
+								"\t    '(X0,X1,...)' : Optional, string, specifies nodes to use for the table in the cluster, if not provided all are used\n" +
+								"HASH:\n" +
+								"\tPARTITION BY HASH(X)\n" +
+								"\tPARTITION BY HASH(X) PARTITIONS (X0,X1,...)\n" +
+								"\t  Description: Values will be inserted by hashing on the attribute defined in X\n" +
+								"\t               the hash function currently supports types 'integer', 'real', 'text'\n" +
+								"\t  Arguments:\n" +
+								"\t    '(X0,X1,...)' : Optional, string, specifies nodes to use as part of the hash, if not provided all are used\n"
+								;
+				tcpServer.sendCtxMessage(ctx, resp);
+				continue;
+			}
 			if (query.startsWith("!partitions")) {
 				tcpServer.sendCtxMessage(ctx, dbPartitioner.explain() + "\n");
 				continue;
+			}
+			if (query.startsWith("!cmd")) {
+				if(query.contains(" ")) {
+                    List<String> cmdTmp = new ArrayList<String>(Arrays.asList(query.split(" ")));
+                    //Drop "!cmd" element
+                    cmdTmp.remove(0);
+                    String tnode = cmdTmp.remove(0);
+                    
+                    String msg = cmdTmp.remove(0);
+                    for(String s: cmdTmp) {
+                        msg = msg.concat(" " + s);
+                    }
+                    //TODO: This is more difficult to implement then I first thought
+                    //issue is that the node only passes back predefined messages (SUCCESS, OUTPUT, ERROR)
+					tcpServer.sendCtxMessage(ctx, "TODO: Not yet implemented! node: " + tnode + ", msg: " + msg + "\n");
+					continue;
+				} else {
+					tcpServer.sendCtxMessage(ctx, "Syntax: cmd <node> <msg>\n");
+					continue;
+				}
 			}
 			if (query.startsWith("!parallel")) {
 				if(query.contains("on")) {

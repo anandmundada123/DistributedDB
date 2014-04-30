@@ -6,6 +6,7 @@ import java.io.IOException;
 import java.io.ObjectInputStream;
 import java.io.ObjectOutputStream;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.HashMap;
 import java.util.Iterator;
 import java.util.List;
@@ -157,6 +158,7 @@ public class DDBPartitioner {
 		 *   select
 		 *   insert
 		 *   create
+		 *   drop
 		 */
 		
 		// select
@@ -178,6 +180,13 @@ public class DDBPartitioner {
 		Matcher createMat = createPat.matcher(query);
 		if(createMat.matches()) {
 			return parseCreateQuery(query);
+		}	
+
+		// drop
+		Pattern dropPat = Pattern.compile("\\s*drop table.*", Pattern.CASE_INSENSITIVE);
+		Matcher dropMat = dropPat.matcher(query);
+		if(dropMat.matches()) {
+			return parseDropQuery(query);
 		}	
 		
 		/*
@@ -225,6 +234,41 @@ public class DDBPartitioner {
 				qMap.put(s, cmd);
 			}
 			return qMap;
+		} else {
+			LOG.fatal("Select string initial match failed in the end");
+			return null;
+		}
+	}
+
+	private Map<String, String> parseDropQuery(String query) throws Exception {
+		System.out.println("DROP match: ");
+		// Pull out important pieces
+		Pattern pat = Pattern.compile("\\s*drop table (.*)", Pattern.CASE_INSENSITIVE);
+		Matcher mat = pat.matcher(query);
+		if(mat.matches()) {
+			String table = mat.group(1);
+			
+			System.out.println("Table: " + table);
+			
+			// Make sure the table doesn't already exist
+			if(tables.containsKey(table)){
+				//Delete the partition data for this table
+				Partition p = tables.remove(table);
+				//Save the partition data to disk
+				saveData();
+				//Respond with the list of nodes from the partition table
+				//so a drop statement can be sent to all of them
+                List<String> theNodes = p.chooseSelectNode();
+				Map<String, String> qMap = new HashMap<String, String>();
+                for(String s: theNodes) {
+                    qMap.put(s, query);
+                }
+                return qMap;
+				
+			} else {
+				LOG.fatal("ERROR drop table, table doesn't exists");
+				throw new Exception("NoTableExists");
+			}
 		} else {
 			LOG.fatal("Select string initial match failed in the end");
 			return null;
@@ -407,6 +451,20 @@ class UnitTestDDBPartitioner {
 	private static final Log LOG = LogFactory.getLog(UnitTestDDBPartitioner.class);
 	
 	public static void main(String[] args) throws Exception {
+		String query = "!cmd wah this is a test";
+		List<String> tmp = new ArrayList<String>(Arrays.asList(query.split(" ")));
+		//Drop "!cmd" element
+		tmp.remove(0);
+		String node = tmp.remove(0);
+		
+		String msg = tmp.remove(0);
+		for(String s: tmp) {
+			msg = msg.concat(" " + s);
+		}
+		
+        System.out.println(node);
+        System.out.println(msg);
+		System.exit(0);
 		System.out.println("Running DDBPartitioner test");
 		DDBPartitioner p = new DDBPartitioner(LOG);
 		
@@ -534,6 +592,12 @@ class UnitTestDDBPartitioner {
 		System.out.println(p.parseQuery("Select * from htest1"));
 		System.out.println("===============================================================================");
 		System.out.println(p.parseQuery("Select * from htest2"));
+		System.out.println("===============================================================================");
+		System.out.println(p.parseQuery("drop table htest3"));
+		System.out.println("===============================================================================");
+		System.out.println(p.parseQuery("drop table htest2"));
+		System.out.println("===============================================================================");
+		System.out.println(p.parseQuery("drop table htest1"));
 		
 		
 		/*System.out.println("===============================================================================");
