@@ -759,7 +759,7 @@ public class Client {
 								"!nodes           : send a list of nodes\n" + 
 								"!partitions      : print the partition data\n" +
 								"!parallel on|off : when sending queries perform in parallel or serial\n" +
-								"!timing on|off   : output time to complete operation in milliseconds\n" + 
+								"!timing on|off   : output time to complete operation in seconds\n" + 
 								"!exit            : Exit and kill the application\n";
 				tcpServer.sendCtxMessage(ctx, resp);
 				continue;
@@ -805,7 +805,15 @@ public class Client {
 			
 			// Now the query is sent to the Partitioner which returns back to us a map of operations we must perform
 			try {
-				Map<String, String> operations = dbPartitioner.parseQuery(query.trim());
+				Map<String, String> operations;
+				try {
+					operations = dbPartitioner.parseQuery(query.trim());
+				} catch(Exception e) {
+					//There are several types of messages we should catch
+					//to print output to the user
+					tcpServer.sendCtxMessage(ctx, "ERROR: " + e.getMessage() + "\n");
+					continue;
+				}
 				LOG.info("[QUERY] Mapped operations: " + operations);
 				
 				List<String> outputBlocks = new ArrayList<String>();
@@ -894,7 +902,7 @@ public class Client {
 				// Print time if asked
 				if(performTiming) {
 					long endTime = System.currentTimeMillis();
-					tcpServer.sendCtxMessage(ctx, "Elapsed time: " + (endTime - startTime) + "ms\n");
+					tcpServer.sendCtxMessage(ctx, "Elapsed time: " + (endTime - startTime) / 1000 + " sec\n");
 				}
 			} catch (Exception e1) {
 				// TODO Auto-generated catch block
