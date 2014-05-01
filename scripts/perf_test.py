@@ -1,14 +1,26 @@
-import os, sys, json, subprocess, socket, time
+import os, sys, json, subprocess, socket, time, argparse
 from sys import stdout
 
 from twisted.internet import reactor
 from twisted.internet.protocol import Protocol, Factory, ClientFactory
+
+timeflt = lambda: time.time()
 
 # ANSI forground green
 C_REQ = '\033[34m'
 C_GOOD = '\033[32m'
 C_BAD = '\033[31m'
 C_END = '\033[0m'
+verbose = False
+
+def setupArgParse():
+    p = argparse.ArgumentParser(description='Perform tests by connecting to a YARN/HADOOP Client')
+    p.add_argument('-host', help='Host name', type=str, default='localhost')
+    p.add_argument('-p', help='Port', type=int, default=12345)
+    p.add_argument('-f', help='Test file', type=str, default='')
+    p.add_argument('-t', help='Test the test file rather than send it to the Client', action='store_true')
+    p.add_argument('-v', help='Verbose', action='store_true')
+    return p
 
 def output(arg):
     sys.stdout.write(arg)
@@ -39,9 +51,13 @@ class SenderProtocol(Protocol):
         # Get the first data and send it
         req = self.factory.tester.getRequest()
         output(C_REQ + req + C_END)
+        # Start timing:
+        self.factory.tester.tic()
         self.transport.write(req)
 
     def dataReceived(self, data):
+        # Stop timer
+        self.factory.tester.toc()
         # Pass it to the tester for validation
         resp = self.factory.tester.validateResponse(data)
         # If ok do next one
@@ -50,6 +66,7 @@ class SenderProtocol(Protocol):
                 self.factory.tester.next()
             except:
                 print('=============== All done ================')
+                print(self.factory.tester.timingReport())
                 self.transport.loseConnection()
                 reactor.stop()
                 return
@@ -57,9 +74,13 @@ class SenderProtocol(Protocol):
             # Send next test
             req = self.factory.tester.getRequest()
             output(C_REQ + req + C_END)
+            # Get timing
+            self.factory.tester.tic()
             self.transport.write(req)
         else:
-            print('-- not a match')
+            self.transport.loseConnection()
+            reactor.stop()
+            return
             
 
     def connectionLost(self, reason):
@@ -98,10 +119,29 @@ class Tester:
     def __init__(self, tests=[]):
         self.ptr = 0
         self.tests = []
+        self.timings = []
 
     def clearTests(self):
         self.ptr = 0
         self.tests = []
+        self.timings = []
+
+    def tic(self):
+        """Start a timer for the test we are pointing to"""
+        self.timings.append(timeflt())
+
+    def toc(self):
+        """Stop a timer for the current test."""
+        tNow = timeflt()
+        tThen = self.timings[-1]
+        self.timings[-1] = tNow - tThen
+
+    def timingReport(self):
+        """Return a string of the timing report."""
+        out = "Timing Report (query: seconds)\n"
+        for i in range(0, len(self.timings)):
+            out += "  % 3d: %.4f\n" % (i, self.timings[i])
+        return out
 
     def loadFromFile(self, filename):
         """Load a file in a specific format for test cases"""
@@ -171,10 +211,15 @@ class Tester:
             output(C_GOOD + "Query %d passed\n" % self.ptr + C_END)
             return True
         else:
+            if(verbose):
+                output(C_BAD + "=============== Expected ===============\n" + C_END)
+                output(C_BAD + self.getResponse() + C_END)
+                output(C_BAD + "\n=============== Received ===============\n" + C_END)
+                output(C_BAD + resp + C_END)
             # Print out some data about where the difference started
             diff = self.calcDiff(resp, self.getResponse())
 
-            output(C_BAD + "Query %d failed, difference:\n" % self.ptr + C_END)
+            output(C_BAD + "Query %d failed, (recv != expect):\n" % self.ptr + C_END)
             for k, v in diff.iteritems():
                 output(C_BAD + "  %d: %s != %s\n" % (k, v[0], v[1]) + C_END)
             return False
@@ -190,6 +235,11 @@ class Tester:
         p = 0
         for i, j in zip(a, b):
             if(i != j):
+                # Fix newlines so they don't mess with the output
+                if(i == "\n"):
+                    i = "NL"
+                if(j == "\n"):
+                    j = "NL"
                 x[p] = (i, j)
             p += 1
         return x
@@ -200,20 +250,33 @@ class Tester:
         if(self.ptr >= len(self.tests)):
             raise Exception("AllDone")
     
-# Get args
-try:
-    host = sys.argv[1]
-    port = int(sys.argv[2])
-    testFile = sys.argv[3]
-except:
-    print("Usage: $0 <host> <port> <testfile>")
+
+
+###############################################################################
+# Main
+p = setupArgParse()
+args = p.parse_args()
+
+testme = args.t
+host = args.host
+port = args.p
+testFile = args.f
+verbose = args.v
+
+if(testFile == ""):
+    print('File name required')
+    args.print_help()
     exit()
     
 test = Tester()
 test.loadFromFile(testFile)
 
 # A test case
-if(True):
+if(testme):
+    print('====================================== Testing %s =========================================' % testFile)
+    print('= This section will test each request 2 times once, added an "x" at the end of the string')
+    print('= (So if you put __IGNORE__ it will pass 2 times, if you put a real __RESPONSE__ it should fail once')
+    print('===========================================================================================')
     while(True):
         req = test.getRequest()
         resp = test.getResponse()
@@ -228,7 +291,7 @@ if(True):
             test.next()
         except:
             break
-
-#f = SenderFactory(host, port, test)
-#reactor.connectTCP(host, port, f)
-#reactor.run()
+else:
+    f = SenderFactory(host, port, test)
+    reactor.connectTCP(host, port, f)
+    reactor.run()

@@ -1,0 +1,41 @@
+__REQUEST__ !help
+__RESPONSE__
+========== HELP ==========
+!nodes             : send a list of nodes
+!cmd <node> <msg>  : send command directly to <node>
+!syntax            : print the supported syntax for partition types
+!partitions        : print the partition data
+!parallel <on|off> : when sending queries perform in parallel or serial
+!timing <on|off>   : output time to complete operation in seconds
+!exit              : Exit and kill the application
+__RESPONSE__
+
+__REQUEST__ !syntax
+__RESPONSE__
+Supported syntax for partition types:
+- All partition syntax relates to 'create' statements
+- Explanations below are shown in the form: 'create table(stuff) PARTITIONSTRING'
+
+RANDOM:
+	PARTITION BY RANDOM
+	PARTITION BY RANDOM(X)
+	  Description: Values will be inserted randomly into nodes of the cluster
+	  Arguments:
+	    '(X)' : Optional, integer, specifies to randomly pick a subset of nodes for this table, of size X
+ROUNDROBIN:
+	PARTITION BY ROUNDROBIN
+	PARTITION BY ROUNDROBIN(X0,X1,...)
+	  Description: Values will be inserted in a round robin fashion into nodes of the cluster
+	  Arguments:
+	    '(X0,X1,...)' : Optional, string, specifies nodes to use for the table in the cluster, if not provided all are used
+HASH:
+	PARTITION BY HASH(X)
+	PARTITION BY HASH(X) PARTITIONS (X0,X1,...)
+	  Description: Values will be inserted by hashing on the attribute defined in X
+	               the hash function currently supports types 'integer', 'real', 'text'
+	  Arguments:
+	    '(X0,X1,...)' : Optional, string, specifies nodes to use as part of the hash, if not provided all are used
+__RESPONSE__
+__REQUEST__ !parallel on
+__RESPONSE__ __IGNORE__
+__DONE__

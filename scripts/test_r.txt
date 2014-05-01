@@ -1,0 +1,64 @@
+__REQUEST__ create table rtest1(a integer, b text) partition by random
+__RESPONSE__
+SUCCESS
+SUCCESS
+SUCCESS
+__RESPONSE__
+__REQUEST__ insert into rtest1 values (0, 'this')
+__RESPONSE__
+SUCCESS
+__RESPONSE__
+__REQUEST__ insert into rtest1 values (1, 'is')
+__RESPONSE__
+SUCCESS
+__RESPONSE__
+__REQUEST__ insert into rtest1 values (2, 'a')
+__RESPONSE__
+SUCCESS
+__RESPONSE__
+__REQUEST__ insert into rtest1 values (3, 'test')
+__RESPONSE__
+SUCCESS
+__RESPONSE__
+__REQUEST__ insert into rtest1 values (4, 'for')
+__RESPONSE__
+SUCCESS
+__RESPONSE__
+__REQUEST__ insert into rtest1 values (5, 'database')
+__RESPONSE__
+SUCCESS
+__RESPONSE__
+__REQUEST__ insert into rtest1 values (6, 'management')
+__RESPONSE__
+SUCCESS
+__RESPONSE__
+__REQUEST__ insert into rtest1 values (7, 'systems')
+__RESPONSE__
+SUCCESS
+__RESPONSE__
+__REQUEST__ select * from rtest1
+__RESPONSE__
+0|this
+1|is
+2|a
+3|test
+4|for
+5|database
+6|management
+7|systems
+__RESPONSE__
+__REQUEST__ select * from rtest1 where a < 2 or a > 4
+__RESPONSE__
+0|this
+1|is
+5|database
+6|management
+7|systems
+__RESPONSE__
+__REQUEST__ drop table rtest1
+__RESPONSE__
+SUCCESS
+SUCCESS
+SUCCESS
+__RESPONSE__
+__DONE__
