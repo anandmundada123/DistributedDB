@@ -16,7 +16,7 @@ public class DDBConstants {
    */
   public static final String DDB_DB_LOCATION = "DISTRIBUTEDDATABASE_DB_LOCATION";
   public static final String DDB_WRAP_LOCATION = "DISTRIBUTEDDATABASE_WRAP_LOCATION";
-  //public static final String DDB_CONTAINER_LOCATION = "DISTRIBUTEDDATABASE_CONTAINER_LOCATION";
+  public static final String DDB_WRAP_QS_LOCATION = "DISTRIBUTEDDATABASE_WRAP_QS_LOCATION";
 
   /**
    * Environment key name denoting the file timestamp for the shell script. 
@@ -24,7 +24,7 @@ public class DDBConstants {
    */
   public static final String DDB_DB_TIMESTAMP = "DISTRIBUTEDDATABASE_DB_TIMESTAMP";
   public static final String DDB_WRAP_TIMESTAMP = "DISTRIBUTEDDATABASE_WRAP_TIMESTAMP";
- // public static final String DDB_CONTAINER_TIMESTAMP = "DISTRIBUTEDDATABASE_CONTAINER_TIMESTAMP";
+  public static final String DDB_WRAP_QS_TIMESTAMP = "DISTRIBUTEDDATABASE_QS_WRAP_TIMESTAMP";
 
   /**
    * Environment key name denoting the file content length for the shell script. 
@@ -32,14 +32,14 @@ public class DDBConstants {
    */
   public static final String DDB_DB_LEN = "DISTRIBUTEDDATABASE_DB_LEN";
   public static final String DDB_WRAP_LEN = "DISTRIBUTEDDATABASE_WRAP_LEN";
-  //public static final String DDB_CONTAINER_LEN = "DISTRIBUTEDDATABASE_CONTAINER_LEN";
+  public static final String DDB_WRAP_QS_LEN = "DISTRIBUTEDDATABASE_QS_WRAP_LEN";
 
   /**
    * Location of Script on all nodes
    */
   public static final String DB_SCRIPT_LOCATION = "exec_cmd.py";
   public static final String WRAP_SCRIPT_LOCATION = "cont_net.py";
-  //public static final String CONTAINER_SCRIPT_LOCATION = "exec_containor.py";
+  public static final String WRAP_QS_SCRIPT_LOCATION = "exec_qs.py";
   
   /**
    * Port Number where App Master is listening 

@@ -186,23 +186,23 @@ public class ApplicationMaster {
 	// Shell script path in fs
 	private String shellDbScriptPath = "";
 	private String shellWrapScriptPath = "";
-	//private String shellContainerScriptPath = "";
+	private String shellWrapQsScriptPath = "";
 	
 	// Timestamp needed for creating a local resource
 	private long shellDbScriptPathTimestamp = 0;
 	private long shellWrapScriptPathTimestamp = 0;
-	//private long shellContainerScriptPathTimestamp = 0;
+	private long shellWrapQsScriptPathTimestamp = 0;
 	
 	// File length needed for local resource
 	private long shellDbScriptPathLen = 0;
 	private long shellWrapScriptPathLen = 0;
-	//private long shellContainerScriptPathLen = 0;
+	private long shellWrapQsScriptPathLen = 0;
 	
 	// Hardcoded path to shell script in launch container's local env
 	private final String ExecDbShellStringPath = DDBConstants.DB_SCRIPT_LOCATION;
-	//private final String ExecWrapShellStringPath = DDBConstants.WRAP_SCRIPT_LOCATION;
-	private final String ExecWrapShellStringPath = "cont_net.py";
-	//private final String ExecContainerStringPath = DDBConstants.CONTAINER_SCRIPT_LOCATION;
+	private final String ExecWrapShellStringPath = DDBConstants.WRAP_SCRIPT_LOCATION;
+	private final String ExecWrapQsShellStringPath = DDBConstants.WRAP_QS_SCRIPT_LOCATION;
+	//private final String ExecWrapShellStringPath = "cont_net.py";
 	
 	private volatile boolean done;
 	private volatile boolean success;
@@ -567,6 +567,30 @@ public class ApplicationMaster {
 						"Illegal values in env for shell script path");
 			}
 		}
+		
+		//For QS wrap script
+		if (envs.containsKey(DDBConstants.DDB_WRAP_QS_LOCATION)) {
+			shellWrapQsScriptPath = envs.get(DDBConstants.DDB_WRAP_QS_LOCATION);
+
+			if (envs.containsKey(DDBConstants.DDB_WRAP_QS_TIMESTAMP)) {
+				shellWrapQsScriptPathTimestamp = Long.valueOf(envs
+						.get(DDBConstants.DDB_WRAP_QS_TIMESTAMP));
+			}
+			if (envs.containsKey(DDBConstants.DDB_WRAP_QS_LEN)) {
+				shellWrapQsScriptPathLen = Long.valueOf(envs
+						.get(DDBConstants.DDB_WRAP_QS_LEN));
+			}
+
+			if (!shellWrapQsScriptPath.isEmpty()
+					&& (shellWrapQsScriptPathTimestamp <= 0 || shellWrapQsScriptPathLen <= 0)) {
+				LOG.error("Illegal values in env for shell script path" + ", path="
+						+ shellWrapQsScriptPath + ", len=" + shellWrapQsScriptPathLen + ", timestamp="
+						+ shellWrapQsScriptPathTimestamp);
+				throw new IllegalArgumentException(
+						"Illegal values in env for shell script path");
+			}
+		}
+				
 		
 		containerMemory = Integer.parseInt(cliParser.getOptionValue(
 				"container_memory", "10"));
@@ -997,6 +1021,32 @@ public class ApplicationMaster {
 				System.out.println("Anand : resource URL " +shellWrapRsrc.getResource());
 			}
 		
+			if (!shellWrapQsScriptPath.isEmpty()) {
+				LocalResource shellWrapQsRsrc = Records.newRecord(LocalResource.class);
+				shellWrapQsRsrc.setType(LocalResourceType.FILE);
+				shellWrapQsRsrc.setVisibility(LocalResourceVisibility.APPLICATION);
+				try {
+					shellWrapQsRsrc.setResource(ConverterUtils.getYarnUrlFromURI(new URI(
+							shellWrapQsScriptPath)));
+				} catch (URISyntaxException e) {
+					LOG.error("Error when trying to use shell script path specified"
+							+ " in env, path=" + shellWrapScriptPath);
+					e.printStackTrace();
+
+					// A failure scenario on bad input such as invalid shell script path
+					// We know we cannot continue launching the container
+					// so we should release it.
+					// TODO
+					numCompletedContainers.incrementAndGet();
+					numFailedContainers.incrementAndGet();
+					return;
+				}
+				shellWrapQsRsrc.setTimestamp(shellWrapQsScriptPathTimestamp);
+				shellWrapQsRsrc.setSize(shellWrapQsScriptPathLen);
+				localResources.put(ExecWrapQsShellStringPath, shellWrapQsRsrc);
+				System.out.println("Anand : resource URL " +shellWrapQsRsrc.getResource());
+			}
+			
 			ctx.setLocalResources(localResources);
 
 			// Set the necessary command to execute on the allocated container

@@ -490,62 +490,58 @@ public class Client {
 		// master as the application master does not need it.
 		String hdfsDbShellScriptLocation = "";
 		String hdfsWrapShellScriptLocation = "";
-		String hdfsContainerShellScriptLocation = "";
+		String hdfsWrapQsShellScriptLocation = "";
 
 		long hdfsDbShellScriptLen = 0;
 		long hdfsWrapShellScriptLen = 0;
-		// long hdfsContainerShellScriptLen = 0;
+		long hdfsWrapQsShellScriptLen = 0;
 
 		long hdfsDbShellScriptTimestamp = 0;
 		long hdfsWrapShellScriptTimestamp = 0;
-		// long hdfsContainerShellScriptTimestamp = 0;
+		long hdfsWrapQsShellScriptTimestamp = 0;
 
 		// Copy the required scripts so they are local resources to the worker
 		// nodes
 		String dbScriptPath = DDBConstants.DB_SCRIPT_LOCATION;
 		String wrapScriptPath = DDBConstants.WRAP_SCRIPT_LOCATION;
-		// String containerScriptPath = DDBConstants.CONTAINER_SCRIPT_LOCATION;
+		String wrapQsScriptPath = DDBConstants.WRAP_QS_SCRIPT_LOCATION;
 
 		Path dbShellSrc = new Path(dbScriptPath);
 		Path wrapShellSrc = new Path(wrapScriptPath);
-		// Path containerShellSrc = new Path(containerScriptPath);
+		Path wrapQsShellSrc = new Path(wrapQsScriptPath);
 
 		String dbShellPathSuffix = appName + "/"
 				+ DDBConstants.DB_SCRIPT_LOCATION;
 		String wrapShellPathSuffix = appName + "/"
 				+ DDBConstants.WRAP_SCRIPT_LOCATION;
-		// String containerShellPathSuffix = appName + "/" +
-		// DDBConstants.CONTAINER_SCRIPT_LOCATION;
+		String wrapQsShellPathSuffix = appName + "/"
+				+ DDBConstants.WRAP_QS_SCRIPT_LOCATION;
 
 		Path dbShellDst = new Path(fs.getHomeDirectory(), dbShellPathSuffix);
 		Path wrapShellDst = new Path(fs.getHomeDirectory(), wrapShellPathSuffix);
-		// Path containerShellDst = new Path(fs.getHomeDirectory(),
-		// containerShellPathSuffix);
+		Path wrapQsShellDst = new Path(fs.getHomeDirectory(), wrapQsShellPathSuffix);
 
 		fs.copyFromLocalFile(false, true, dbShellSrc, dbShellDst);
 		fs.copyFromLocalFile(false, true, wrapShellSrc, wrapShellDst);
-		// fs.copyFromLocalFile(false, true, containerShellSrc,
-		// containerShellDst);
+		fs.copyFromLocalFile(false, true, wrapQsShellSrc, wrapQsShellDst);
 
 		hdfsDbShellScriptLocation = dbShellDst.toUri().toString();
 		hdfsWrapShellScriptLocation = wrapShellDst.toUri().toString();
-		// hdfsContainerShellScriptLocation =
-		// containerShellDst.toUri().toString();
+		hdfsWrapQsShellScriptLocation = wrapQsShellDst.toUri().toString();
 
 		FileStatus dbShellFileStatus = fs.getFileStatus(dbShellDst);
 		FileStatus wrapShellFileStatus = fs.getFileStatus(wrapShellDst);
-		// FileStatus containerShellFileStatus =
-		// fs.getFileStatus(containerShellDst);
+		FileStatus wrapQsShellFileStatus = fs.getFileStatus(wrapQsShellDst);
 
 		hdfsDbShellScriptLen = dbShellFileStatus.getLen();
 		hdfsWrapShellScriptLen = wrapShellFileStatus.getLen();
-		// hdfsContainerShellScriptLen = containerShellFileStatus.getLen();
+		hdfsWrapQsShellScriptLen = wrapQsShellFileStatus.getLen();
 
 		hdfsDbShellScriptTimestamp = dbShellFileStatus.getModificationTime();
 		hdfsWrapShellScriptTimestamp = wrapShellFileStatus
 				.getModificationTime();
-		// hdfsContainerShellScriptTimestamp =
-		// containerShellFileStatus.getModificationTime();
+		hdfsWrapQsShellScriptTimestamp = wrapQsShellFileStatus
+				.getModificationTime();
 
 		// Set local resource info into app master container launch context
 		amContainer.setLocalResources(localResources);
@@ -574,6 +570,12 @@ public class Client {
 		env.put(DDBConstants.DDB_WRAP_LEN,
 				Long.toString(hdfsWrapShellScriptLen));
 
+		env.put(DDBConstants.DDB_WRAP_QS_LOCATION, hdfsWrapQsShellScriptLocation);
+		env.put(DDBConstants.DDB_WRAP_QS_TIMESTAMP,
+				Long.toString(hdfsWrapQsShellScriptTimestamp));
+		env.put(DDBConstants.DDB_WRAP_QS_LEN,
+				Long.toString(hdfsWrapQsShellScriptLen));
+		
 		// Add AppMaster.jar location to classpath
 		// At some point we should not be required to add
 		// the hadoop specific classpaths to the env.
