@@ -50,7 +50,7 @@ class SenderProtocol(Protocol):
         print('=============== Starting testing ================')
         # Get the first data and send it
         req = self.factory.tester.getRequest()
-        output(C_REQ + req + C_END)
+        output(C_REQ + "Query %d: %s" % (self.factory.tester.ptr, req) + C_END)
         # Start timing:
         self.factory.tester.tic()
         self.transport.write(req)
@@ -73,7 +73,7 @@ class SenderProtocol(Protocol):
             
             # Send next test
             req = self.factory.tester.getRequest()
-            output(C_REQ + req + C_END)
+            output(C_REQ + "Query %d: %s" % (self.factory.tester.ptr, req) + C_END)
             # Get timing
             self.factory.tester.tic()
             self.transport.write(req)
@@ -204,11 +204,11 @@ class Tester:
             for this specific test."""
         #Don't process if ignore, return valid
         if(self.getResponse() == "__IGNORE__"):
-            output(C_GOOD + "Query %d ignored\n" % self.ptr + C_END)
+            output(C_GOOD + "Query %d: ignored\n" % self.ptr + C_END)
             return True
 
         if(resp == self.getResponse()):
-            output(C_GOOD + "Query %d passed\n" % self.ptr + C_END)
+            output(C_GOOD + "Query %d: passed\n" % self.ptr + C_END)
             return True
         else:
             if(verbose):
@@ -219,7 +219,7 @@ class Tester:
             # Print out some data about where the difference started
             diff = self.calcDiff(resp, self.getResponse())
 
-            output(C_BAD + "Query %d failed, (recv != expect):\n" % self.ptr + C_END)
+            output(C_BAD + "Query %d: failed, (recv != expect):\n" % self.ptr + C_END)
             for k, v in diff.iteritems():
                 output(C_BAD + "  %d: %s != %s\n" % (k, v[0], v[1]) + C_END)
             return False

@@ -1,0 +1,126 @@
+__REQUEST__ create table test1(a integer, b text) partition by random
+__RESPONSE__ __IGNORE__
+__REQUEST__ insert into test1 values (0, 'We')
+__RESPONSE__ __IGNORE__
+__REQUEST__ insert into test1 values (1, 'the')
+__RESPONSE__ __IGNORE__
+__REQUEST__ insert into test1 values (2, 'people')
+__RESPONSE__ __IGNORE__
+__REQUEST__ insert into test1 values (3, 'of')
+__RESPONSE__ __IGNORE__
+__REQUEST__ insert into test1 values (4, 'the')
+__RESPONSE__ __IGNORE__
+__REQUEST__ insert into test1 values (5, 'United')
+__RESPONSE__ __IGNORE__
+__REQUEST__ insert into test1 values (6, 'States')
+__RESPONSE__ __IGNORE__
+__REQUEST__ insert into test1 values (7, 'in')
+__RESPONSE__ __IGNORE__
+__REQUEST__ insert into test1 values (8, 'order')
+__RESPONSE__ __IGNORE__
+__REQUEST__ insert into test1 values (9, 'to')
+__RESPONSE__ __IGNORE__
+__REQUEST__ insert into test1 values (10, 'form')
+__RESPONSE__ __IGNORE__
+__REQUEST__ insert into test1 values (11, 'a')
+__RESPONSE__ __IGNORE__
+__REQUEST__ insert into test1 values (12, 'more')
+__RESPONSE__ __IGNORE__
+__REQUEST__ insert into test1 values (13, 'perfect')
+__RESPONSE__ __IGNORE__
+__REQUEST__ insert into test1 values (14, 'union')
+__RESPONSE__ __IGNORE__
+__REQUEST__ insert into test1 values (15, 'establish')
+__RESPONSE__ __IGNORE__
+__REQUEST__ insert into test1 values (16, 'justice')
+__RESPONSE__ __IGNORE__
+__REQUEST__ insert into test1 values (17, 'insure')
+__RESPONSE__ __IGNORE__
+__REQUEST__ insert into test1 values (18, 'domestic')
+__RESPONSE__ __IGNORE__
+__REQUEST__ insert into test1 values (19, 'tranquility')
+__RESPONSE__ __IGNORE__
+__REQUEST__ insert into test1 values (20, 'provide')
+__RESPONSE__ __IGNORE__
+__REQUEST__ insert into test1 values (21, 'for')
+__RESPONSE__ __IGNORE__
+__REQUEST__ insert into test1 values (22, 'the')
+__RESPONSE__ __IGNORE__
+__REQUEST__ insert into test1 values (23, 'common')
+__RESPONSE__ __IGNORE__
+__REQUEST__ insert into test1 values (24, 'defense')
+__RESPONSE__ __IGNORE__
+__REQUEST__ insert into test1 values (25, 'promote')
+__RESPONSE__ __IGNORE__
+__REQUEST__ insert into test1 values (26, 'the')
+__RESPONSE__ __IGNORE__
+__REQUEST__ insert into test1 values (27, 'general')
+__RESPONSE__ __IGNORE__
+__REQUEST__ insert into test1 values (28, 'welfare')
+__RESPONSE__ __IGNORE__
+__REQUEST__ insert into test1 values (29, 'and')
+__RESPONSE__ __IGNORE__
+__REQUEST__ insert into test1 values (30, 'secure')
+__RESPONSE__ __IGNORE__
+__REQUEST__ insert into test1 values (31, 'the')
+__RESPONSE__ __IGNORE__
+__REQUEST__ insert into test1 values (32, 'blessings')
+__RESPONSE__ __IGNORE__
+__REQUEST__ insert into test1 values (33, 'of')
+__RESPONSE__ __IGNORE__
+__REQUEST__ insert into test1 values (34, 'liberty')
+__RESPONSE__ __IGNORE__
+__REQUEST__ insert into test1 values (35, 'to')
+__RESPONSE__ __IGNORE__
+__REQUEST__ insert into test1 values (36, 'ourselves')
+__RESPONSE__ __IGNORE__
+__REQUEST__ insert into test1 values (37, 'and')
+__RESPONSE__ __IGNORE__
+__REQUEST__ insert into test1 values (38, 'our')
+__RESPONSE__ __IGNORE__
+__REQUEST__ insert into test1 values (39, 'posterity')
+__RESPONSE__ __IGNORE__
+__REQUEST__ insert into test1 values (40, 'do')
+__RESPONSE__ __IGNORE__
+__REQUEST__ insert into test1 values (41, 'ordain')
+__RESPONSE__ __IGNORE__
+__REQUEST__ insert into test1 values (42, 'and')
+__RESPONSE__ __IGNORE__
+__REQUEST__ insert into test1 values (43, 'establish')
+__RESPONSE__ __IGNORE__
+__REQUEST__ insert into test1 values (44, 'this')
+__RESPONSE__ __IGNORE__
+__REQUEST__ insert into test1 values (45, 'Constitution')
+__RESPONSE__ __IGNORE__
+__REQUEST__ insert into test1 values (46, 'for')
+__RESPONSE__ __IGNORE__
+__REQUEST__ insert into test1 values (47, 'the')
+__RESPONSE__ __IGNORE__
+__REQUEST__ insert into test1 values (48, 'United')
+__RESPONSE__ __IGNORE__
+__REQUEST__ insert into test1 values (49, 'States')
+__RESPONSE__ __IGNORE__
+__REQUEST__ insert into test1 values (50, 'of')
+__RESPONSE__ __IGNORE__
+__REQUEST__ insert into test1 values (51, 'America.')
+__RESPONSE__ __IGNORE__
+__REQUEST__ select * from test1
+__RESPONSE__ __IGNORE__
+__REQUEST__ select * from test1 where a > 10
+__RESPONSE__ __IGNORE__
+__REQUEST__ select * from test1 where a < 10 or a > 20
+__RESPONSE__ __IGNORE__
+__REQUEST__ select * from test1 where a < 20 or a > 30
+__RESPONSE__ __IGNORE__
+__REQUEST__ !parallel on
+__RESPONSE__ __IGNORE__
+__REQUEST__ select * from test1
+__RESPONSE__ __IGNORE__
+__REQUEST__ select * from test1 where a > 10
+__RESPONSE__ __IGNORE__
+__REQUEST__ select * from test1 where a < 10 or a > 20
+__RESPONSE__ __IGNORE__
+__REQUEST__ select * from test1 where a < 20 or a > 30
+__RESPONSE__ __IGNORE__
+__REQUEST__ drop table test1
+__RESPONSE__ __IGNORE__

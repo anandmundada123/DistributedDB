@@ -3,6 +3,7 @@ __RESPONSE__
 SUCCESS
 SUCCESS
 SUCCESS
+SUCCESS
 __RESPONSE__
 __REQUEST__ insert into rrtest1 values (0, 'this')
 __RESPONSE__
@@ -57,6 +58,7 @@ __RESPONSE__
 __RESPONSE__
 __REQUEST__ drop table rrtest1
 __RESPONSE__
+SUCCESS
 SUCCESS
 SUCCESS
 SUCCESS
