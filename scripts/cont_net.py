@@ -40,7 +40,8 @@ class SenderProtocol(Protocol):
         output('-- [CONT_NET] exec_cmd communicate finished\n')
 
         if(proc.returncode):
-            output("!! Unable to mount (%d) %s\n" % (proc.returncode, errors))
+            output("!! ERROR: exec_cmd returned error (%d) %s %s\n" % (proc.returncode, errors, stdoutput))
+            self.transport.write('ERROR: exec_cmd returned error (%d) %s %s\n' % (proc.returncode, errors, stdoutput))
 
         else:
             # Got good data, forward whatever output is

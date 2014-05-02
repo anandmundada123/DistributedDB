@@ -1,5 +1,5 @@
 #!/usr/bin/python
-import re, os, subprocess
+import re, os, subprocess, traceback
 import sqlite3 as lite
 import sys
 
@@ -44,7 +44,12 @@ def fixQuery(query):
         for p in regq[valPtr+1:]:
             #Looking for first "("
             if(FSM == "INIT"):
-                if('(' in p):
+                # This deals with the case where there is only 1 column
+                if('(' in p and ')' in p):
+                    predList.append(fixInsertVals(p))
+                    newQueryList.append(initialQuery + " ".join(predList))
+                    predList = []
+                elif('(' in p):
                     predList.append(fixInsertVals(p))
                     FSM = "LOOKFOREND"
                 
@@ -100,6 +105,8 @@ if __name__ == "__main__":
     
     #Fix the query if required depending on type
     query = fixQuery(query)
+    #print(query)
+    #exit(0)
     # Expect that someone else outputed an error message
     if(not query):
         exit(1)
@@ -133,9 +140,17 @@ if __name__ == "__main__":
                 
                 # If SELECT push results into new database
                 if(queryType == "select"):
-                    q = 'insert into %s values %s' % (queryTable, tuple(row))
+                    # Deal with trailing comma issues if tuple size 1
+                    if(len(tuple(row)) == 1):
+                        q = 'insert into %s values (%s)' % (queryTable, tuple(row)[0])
+                    else:
+                        q = 'insert into %s values %s' % (queryTable, tuple(row))
                     #print(q)
-                    cur_out.execute(q)
+                    try:
+                        cur_out.execute(q)
+                    except Exception as e:
+                        print("ERROR inserting into temp table: '%s' %s\n" % (q, str(e)))
+                        raise e
 
                 #Convert the list returned into a string to print to file
                 #s = '\t'.join(row)
@@ -163,5 +178,6 @@ if __name__ == "__main__":
         cur.close()
     except Exception as e:
         print('ERROR: %s' % str(e))
+        print(traceback.format_exc())
     finally:
         con.close()
