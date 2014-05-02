@@ -8,10 +8,12 @@ import java.util.List;
 import java.util.Map;
 import java.util.Random;
 
+import org.mortbay.log.Log;
+
 interface Partition extends Serializable {
 	List<String> initialize();
 	String chooseInsertNode(String vals);
-	List<String> chooseSelectNode();
+	List<String> chooseSelectNode(String whereClause);
 	String explain();
 }
 
@@ -72,7 +74,7 @@ class RandomPartition implements Partition {
 	/**
 	 * When looking for data we don't know where it would be so request from all
 	 */
-	public List<String> chooseSelectNode() {
+	public List<String> chooseSelectNode(String whereClause) {
 		return nodes;
 	}
 }
@@ -195,8 +197,37 @@ class HashPartition implements Partition {
 	/**
 	 * For now just send selects to all nodes
 	 */
-	public List<String> chooseSelectNode() {
-		return nodes;
+	public List<String> chooseSelectNode(String whereClause) {
+		// only support = where clause
+		if(whereClause == null || whereClause.equals("") || !whereClause.contains("=")) {
+			return nodes;
+		}
+		else {
+			String [] tmp = whereClause.split("=");
+			String attr = tmp[0].trim();
+			if(attr.equals(hashingAttr)) {
+				List<String> nodeList = new ArrayList<String>();
+				int ptr;		
+				// Now hash this value against our list of nodes
+				if(hashingType.equals("integer")){
+					int hashVal = Integer.parseInt(tmp[1].trim());
+					ptr = hashVal % nodes.size();
+				} else if (hashingType.equals("text")) {
+					ptr = Math.abs(tmp[1].trim().hashCode()) % nodes.size();
+				} else if (hashingType.equals("real")) {
+					float hashVal = Float.parseFloat(tmp[1].trim());
+					ptr = (int) (hashVal % nodes.size());
+				} else {
+					// NOTE: We already checked in the constructor if the type is valid so we can just ignore this
+					System.out.println("[HASHPARTITION] THIS SHOULD NEVER EVER EVER EVER EVER SHOW UP!");
+					return nodes;
+				}
+				nodeList.add(nodes.get(ptr));
+				return nodeList;
+			} else {
+				return nodes;
+			}
+		}
 	}
 }
 
@@ -251,19 +282,107 @@ class RoundRobinPartition implements Partition {
 		return tmp;
 	}
 	
-	public List<String> chooseSelectNode() {
+	public List<String> chooseSelectNode(String whereClause) {
 		return nodes;
+	}
+}
+
+class Range implements Serializable{
+	private int min;
+	private int max;
+	private String node;
+	public Range(int min, int max) {
+		this.min = min;
+		this.max = max;
+		this.node = "";
+	}
+	
+	public void setNode(String node) {
+		this.node = node;
+	}
+	public boolean isInRange(int no) {
+		if (no > min && no <= max) {
+			return true;
+		} else {
+			return false;
+		}
+	}
+	
+	public int getMin() {
+		return min;
+	}
+	
+	public int getMax() {
+		return max;
+	}
+	
+	public String getNode() {
+		if(node.equals("")) {
+			return null;
+		}
+		return node;
 	}
 }
 
 class RangePartition implements Partition {
 	private List<String> nodes;
-	private String attr;
+	private String partAttr;
+	private int partAttrPosn;
+	private String attrType;
+	private String declAttrs;
+	private int[] distribution;
+	private List <Range> rangeMap;
+	private final String[] SUPPORTEDATTRTYPES = {"integer", "text", "real"};
 	private static final long serialVersionUID = 4L;
 	
-	public RangePartition(List<String> nodes, String attr, String args) {
-		this.nodes = new ArrayList<String>(nodes);
-		this.attr = attr;
+	public RangePartition(List<String> nodes, String declAttrs, String partAttr, List<Range> rangeList) throws Exception {
+		this.nodes = new ArrayList<String>();
+		this.partAttr = partAttr;
+		this.declAttrs = declAttrs;
+		rangeMap = rangeList;
+		if(nodes.size() < rangeList.size()) {
+			throw new Exception("Range Exceed number of nodes");
+		}
+		
+		// Assign RangList to all 
+		for(int i = 0; i < rangeMap.size(); i++) {
+			rangeMap.get(i).setNode(nodes.get(i));
+			this.nodes.add(nodes.get(i));
+		}
+		
+		// Keep track of where we choose to put the data
+		distribution = new int[this.nodes.size()];
+		//Init the dist
+		for(int i = 0; i < this.nodes.size(); i++) {
+			distribution[i] = 0;
+		}
+		
+		// Now we need to look through the attribute list to make sure their hash attr is in the list
+		String[] theAttrs = declAttrs.split(",");
+		partAttrPosn = 0;
+		for(String a: theAttrs) {
+			a = a.trim();
+			// The attr should look like "name type" so find that
+			if(!a.contains(" ")){
+				throw new Exception("HashPartitionInvalidAttributeDeclaration");
+			}
+			String[] tmp = a.split(" ");
+
+			//Search for the match to the requested hash attr
+			if(partAttr.equals(tmp[0])){
+				this.partAttr = tmp[0];
+				this.attrType = tmp[1].toLowerCase();
+				//Make sure the hashing type is supported
+				if(!Arrays.asList(SUPPORTEDATTRTYPES).contains(attrType)){
+					throw new Exception("RangePartitionUnsupportedType");
+				}
+				break;
+			}
+			partAttrPosn++;
+		}
+		if(partAttr == null) {
+			throw new Exception("RangePartitionInvalidRangeAttribute");
+		}
 	}
 	public String explain() {
 		return "";
@@ -272,10 +391,56 @@ class RangePartition implements Partition {
 	public List<String> initialize() {
 		return nodes;
 	}
-	public String chooseInsertNode(String vals) {
-		return "";
+	
+	private String selectNode(String attrValue) {
+		if(attrType.equals("integer")){
+			int val = Integer.parseInt(attrValue);
+			for(int i = 0 ; i < rangeMap.size(); i++) {
+				if(rangeMap.get(i).isInRange(val)) {
+					return rangeMap.get(i).getNode();
+				}
+			}
+			Log.warn("Range Partition No info matched");
+			return nodes.get(0);
+			//ptr = hashVal % nodes.size();
+		} else if (attrType.equals("text")) {
+			// TODO
+			return nodes.get(0);
+			//ptr = Math.abs(hashValue.hashCode()) % nodes.size();
+		} else if (attrType.equals("real")) {
+			// TODO
+			return nodes.get(0);
+			//float hashVal = Float.parseFloat(hashValue);
+			//ptr = (int) (hashVal % nodes.size());
+		} else {
+			// NOTE: We already checked in the constructor if the type is valid so we can just ignore this
+			System.out.println("[RANGEPARTITION] THIS SHOULD NEVER EVER EVER EVER EVER SHOW UP!");
+			return nodes.get(0);
+		}
 	}
-	public List<String> chooseSelectNode() {
-		return null;
+
+	public String chooseInsertNode(String vals) {
+		String[] theVals = vals.split(",");
+		//Our match *should* be the hashingAttrPosn index value!
+		String attrValue = theVals[partAttrPosn];
+		System.out.println("[RANGEPARTITION] given partition attribute (" + partAttr + ") is " + attrValue);
+		return selectNode(attrValue);
+	}
+	
+	public List<String> chooseSelectNode(String whereClause) {
+		// only support = where clause
+		if(whereClause == null || whereClause.equals("") || !whereClause.contains("=")) {
+			return nodes;
+		}
+		else {
+			String [] tmp = whereClause.split("=");
+			String attr = tmp[0].trim();
+			if(attr.equals(partAttr)) {
+				List<String> nodeList = new ArrayList<String>();
+				nodeList.add(selectNode(tmp[1].trim()));
+				return(nodeList);
+			}
+			return nodes;
+		}
 	}
 }
