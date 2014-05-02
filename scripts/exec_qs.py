@@ -168,7 +168,7 @@ class QuickstepClientProtocol(Protocol):
                 self.out('-- [QSCLIENT] Identified response to NONSELECT query success\n')
                 print(beforeBlocks)
                 print(afterBlocks)
-                self.factory.yarnConn.sendData("SUCCESS\n")
+                self.factory.yarnConn.sendData("SUCCESS")
             else:
                 # Get the catalog so we can parse out the schema
                 catalog = self.factory.qsProc.getCatalog()
@@ -217,18 +217,18 @@ class QuickstepClientProtocol(Protocol):
                     b = b.replace("SAVED: ", "").rstrip()
                     tmpBlkName = "%s-%d" % (outBlock, blkNum)
                     # First rename the file and move it out of the qsstor dir
-                    shutil.move("qsstor/%s" % b, tmpBlkName)
+                    shutil.move("/home/hduser/qsstor/%s" % b, "/home/hduser/%s" % tmpBlkName)
 
                     # cmd to send blocks to HDFS
-                    cmd = "hdfs dfs -copyFromLocal %s" % tmpBlkName
+                    cmd = "hdfs dfs -copyFromLocal /home/hduser/%s" % tmpBlkName
                     self.out('--[QSCLIENT] Performing command: %s' % cmd)
-                    #proc = subprocess.Popen(cmd, shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-                    #stdoutput, errors = proc.communicate()
+                    proc = subprocess.Popen(cmd, shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+                    stdoutput, errors = proc.communicate()
 
-                    #if(proc.returncode):
-                    #    self.out('ERROR Unable to perform hdfs operation %s' % errors)
-                    #    self.factory.yarnConn.sendData("ERROR: Unable to send file to HDFS: %s\n" % stdoutput)
-                    #    return
+                    if(proc.returncode):
+                        self.out('ERROR Unable to perform hdfs operation %s' % errors)
+                        self.factory.yarnConn.sendData("ERROR: Unable to send file to HDFS: %s\n" % stdoutput)
+                        return
                     
                     # increment the block number
                     blkNum += 1
@@ -238,10 +238,16 @@ class QuickstepClientProtocol(Protocol):
                 
                 # Send the Yarn Client the output so they know what to do
                 outputStr = ",".join(blkOutput)
-                self.factory.yarnConn.sendData("OUTPUT %s %s\n" % (outputStr, relationData))
+                # Fix the JSON string to remove special chars
+                relationData = relationData.replace('\n', '').replace('\t', '')
+                self.factory.yarnConn.sendData("OUTPUT %s %s" % (outputStr, relationData))
 
         elif("quickstep>" in data):
             self.out('-- [QSCLIENT] Got a good response\n')
+            # If its the very first prompt then don't spit it out, it interfers with the Client handshake
+            if(not self.factory.firstMsg):
+                self.factory.yarnConn.sendData("SUCCESS")
+            self.factory.firstMsg = False
         elif("      ...>" in data):
             self.out('-- [QSCLIENT] Got a bad response\n')
             #TODO, access the stdout file to pull out what the error was?
@@ -263,6 +269,7 @@ class QuickstepClientFactory(Factory):
         self.proto = None
         self.yarnConn = None
         self.queue = []
+        self.firstMsg = True
     
     def registerYarnClient(self, yarnConn):
         """Hold onto the yarnConn here so we can send data directly to it."""
@@ -346,6 +353,7 @@ class YarnClientFactory(Factory):
 
     def sendData(self, data):
         if(self.proto):
+            self.out('**[YARNCLIENT] Sending data: "%s"\n' % data.rstrip())
             self.proto.transport.write(data)
         else:
             self.out('!![YARNCLIENT] NO proto to send data "%s"\n' % data.rstrip())
