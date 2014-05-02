@@ -32,17 +32,17 @@ class QuickstepHandler:
     def setupEnvironment(self):
         """Sets up the initial environment for quickstep, this includes making sure
         there is a "qsstor" directory for the qsblks and a default catalog.json file."""
-        if(not os.path.exists("qsstor")):
+        if(not os.path.exists("/home/hduser/qsstor")):
             self.out("-- Making qsstor\n")
             try:
-                os.mkdir("qsstor")
+                os.mkdir("/home/hduser/qsstor")
             except Exception as e:
                 self.out("!! Error making qsstor: %s\n" % str(e))
         
         # Setup the default catalog.json
-        if(not os.path.exists("catalog.json")):
+        if(not os.path.exists("/home/hduser/catalog.json")):
             try:
-                fd = open("catalog.json", "w")
+                fd = open("/home/hduser/catalog.json", "w")
                 fd.write(DEFAULT_CATALOG)
                 fd.flush()
                 fd.close()
@@ -52,8 +52,10 @@ class QuickstepHandler:
     def runQS(self):
         """Takes charge of starting up the quickstep binary, then watches for any errors.
         Sets _qsRunning if errors are found."""
-
-        self.proc = subprocess.Popen('LD_LIBRARY_PATH=".:$LD_LIBRARY_PATH" ./quickstep_cli_shell 1>./qs_stdout 2>./qs_stderr', shell=True)#, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        
+        # NOTE we need to add the /home/hduser path to LDLIB so the proper .SO's can be found
+        # Also we change the CWD to /home/hduser too so this is where all the quickstep data is expected to be stored
+        self.proc = subprocess.Popen('LD_LIBRARY_PATH="/home/hduser/:$LD_LIBRARY_PATH" /home/hduser/quickstep_cli_shell 1>./qs_stdout 2>./qs_stderr', shell=True, cwd="/home/hduser/")#, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
         while(True):
             # Poll to see its status
             retcode = self.proc.poll()
@@ -61,21 +63,16 @@ class QuickstepHandler:
                 self.out("!! quickstep process returned: %d\n" % retcode)
                 # KILL EVERYTHING!
                 os.killpg(0, signal.SIGKILL)
-            # Check for stdout?
-            #print('reading stdout')
-            #for o in self.proc.stdout:
-            #    print(o)
-            #print('done reading stdout')
             time.sleep(1)
     
     def getBlocks(self):
         """Read the qsblocks file, return an array of lines from the file.
         If there was no qsblocks file, returns an empty array rather than None."""
         try:
-            if(not os.path.exists('qsblocks')):
+            if(not os.path.exists('/home/hduser/qsblocks')):
                 return []
             
-            with open("qsblocks", "r") as fd:
+            with open("/home/hduser/qsblocks", "r") as fd:
                 return fd.readlines()
         except Exception as e:
             self.out("!! Error getting qsblock data: %s\n" % str(e))
@@ -97,11 +94,11 @@ class QuickstepHandler:
     def getCatalog(self):
         """Return the json parsed catalog data."""
         try:
-            if(not os.path.exists('catalog.json')):
+            if(not os.path.exists('/home/hduser/catalog.json')):
                 self.out('!![QS] catalog doesnt exist\n')
                 return None
             lines = ""
-            with open("catalog.json", "r") as fd:
+            with open("/home/hduser/catalog.json", "r") as fd:
                 while(True):
                     line = fd.readline().rstrip()
                     if(not line):
