@@ -55,7 +55,7 @@ class QuickstepHandler:
         
         # NOTE we need to add the /home/hduser path to LDLIB so the proper .SO's can be found
         # Also we change the CWD to /home/hduser too so this is where all the quickstep data is expected to be stored
-        self.proc = subprocess.Popen('LD_LIBRARY_PATH="/home/hduser/:$LD_LIBRARY_PATH" /home/hduser/quickstep_cli_shell 1>./qs_stdout 2>./qs_stderr', shell=True, cwd="/home/hduser/")#, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        self.proc = subprocess.Popen('LD_LIBRARY_PATH="/home/hduser/:$LD_LIBRARY_PATH" /home/hduser/quickstep_cli_net 1>./qs_stdout 2>./qs_stderr', shell=True, cwd="/home/hduser/")#, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
         while(True):
             # Poll to see its status
             retcode = self.proc.poll()
