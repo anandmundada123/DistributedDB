@@ -79,6 +79,10 @@ public class Client {
 	private String appMasterJar = "distributedDB.jar";
 	// Main class to invoke application master
 	private final String appMasterMainClass = "distributeddb.ApplicationMaster";
+	// Database you want to use
+	private String dbtype = DDBConstants.SQLITE3_DB;
+	// supported database 
+	private String [] supportedDb = {DDBConstants.QUICKSTEP_DB, DDBConstants.SQLITE3_DB};
 	// Query to execute
 	// private String query = "";
 	// Node where to launch container
@@ -145,7 +149,7 @@ public class Client {
 	/**
 	 */
 	public Client(Configuration conf) throws Exception {
-
+		
 		this.conf = conf;
 		yarnClient = YarnClient.createYarnClient();
 		yarnClient.init(conf);
@@ -160,13 +164,11 @@ public class Client {
 				"Amount of memory in MB to be requested to run the application master");
 		opts.addOption("jar", true,
 				"Jar file containing the application master");
-		// opts.addOption("query", true, "The distributed query to execute");
-		// opts.addOption("port", true, "The port number to listen to");
-		// Anand TODO
-		// opts.addOption("node", true,
-		// "Node name where you want to launch container");
 		opts.addOption("container_memory", true,
 				"Amount of memory in MB to be requested to run the shell command");
+		// Supporting multiple databases
+		opts.addOption("db", true,
+				"Which database you want to use (quickstep or sqlite3(default) )");
 		opts.addOption("num_containers", true,
 				"No. of containers on which the shell command needs to be executed");
 		opts.addOption("debug", false, "Dump out debug information");
@@ -220,7 +222,12 @@ public class Client {
 		amQueue = cliParser.getOptionValue("queue", "default");
 		amMemory = Integer.parseInt(cliParser.getOptionValue("master_memory",
 				"10"));
-
+		// Selecting database type that we want to use
+		dbtype = cliParser.getOptionValue("db", DDBConstants.SQLITE3_DB);
+		if(!Arrays.asList(supportedDb).contains(dbtype)) {
+			LOG.warn("Database " + dbtype + " is not supported, we just support sqlite3 and quickstep");
+			dbtype = DDBConstants.SQLITE3_DB;
+		}
 		if (amMemory < 0) {
 			throw new IllegalArgumentException(
 					"Invalid memory specified for application master, exiting."
@@ -314,60 +321,109 @@ public class Client {
 	 * BufferedReader br = new BufferedReader(new InputStreamReader(System.in));
 	 * String s = br.readLine(); return s; }
 	 */
-	private static void writeResultToConsole(TCPServer tcp, ChannelHandlerContext ctx, FileSystem fs,
+	private static void writeResultToConsole(String dbType, TCPServer tcp, ChannelHandlerContext ctx, FileSystem fs,
 			List<String> nodeNames, String selectStr, String table, String where) throws IOException, InterruptedException {
 		
 		//Setup the process string
 		List<String> processArgs = new ArrayList<String>();
-		processArgs.add("bash");
-		processArgs.add("gather_sqlite_results.sh");
-		processArgs.add(selectStr);
-		processArgs.add(table);
-		processArgs.add(where);
-		LOG.info("Initial command list: " + processArgs);
-		
-		//Make a list of stuff we need to delete later
 		List<Path> deleteMe = new ArrayList<Path>();
-		
-		//First copy out the files from HDFS to local (all together)
-		for(String nodeName: nodeNames) {
-            LOG.info("outputBlock: " + nodeName);
-            // First copy the output file from HDFS to local
-            String fileName = new String("/tmp/" + nodeName);
-            
-            //Add to the fileNames list for the Process call
-            processArgs.add(fileName);
-            
-            Path ansSrc = new Path(fs.getHomeDirectory(), nodeName);
-            Path ansDst = new Path(fileName);
-            
-            //Keep track of stuff to delete later
-            deleteMe.add(ansSrc);
-            deleteMe.add(ansDst);
-            
-            try {
-                fs.moveToLocalFile(ansSrc, ansDst);
-            } catch (IOException e) {
-                LOG.error("Unable to copy output file to local directory: "
-                        + e.getMessage());
-            }
+		if(dbType.equals(DDBConstants.SQLITE3_DB)) {
+			processArgs.add("bash");
+			processArgs.add("gather_sqlite_results.sh");
+			processArgs.add(selectStr);
+			processArgs.add(table);
+			processArgs.add(where);
+			LOG.info("Initial command list: " + processArgs);
+			//Make a list of stuff we need to delete later
+			//First copy out the files from HDFS to local (all together)
+			for(String nodeName: nodeNames) {
+				LOG.info("outputBlock: " + nodeName);
+				// First copy the output file from HDFS to local
+				String fileName = new String("/tmp/" + nodeName);
+
+				//Add to the fileNames list for the Process call
+				processArgs.add(fileName);
+
+				Path ansSrc = new Path(fs.getHomeDirectory(), nodeName);
+				Path ansDst = new Path(fileName);
+
+				//Keep track of stuff to delete later
+				deleteMe.add(ansSrc);
+				deleteMe.add(ansDst);
+
+				try {
+					fs.moveToLocalFile(ansSrc, ansDst);
+				} catch (IOException e) {
+					LOG.error("Unable to copy output file to local directory: "
+							+ e.getMessage());
+				}
+			}
+		} else {
+			// Do it for quickstep
+			processArgs.add("python");
+			processArgs.add("gather_qs.py");
+			processArgs.add(selectStr);
+			processArgs.add(table);
+			processArgs.add(where);
+			
+			String json = "";
+			String blkList = "";
+			//First copy out the files from HDFS to local (all together)
+			for(String nodeName: nodeNames) {
+				// here you might have multiple 
+				LOG.info("outputBlock: " + nodeName);
+				// now get block info and json info
+				int ind = nodeName.indexOf(" ");
+				if(json.equals("")) {
+					json = nodeName.substring(ind+1);
+				} 
+				if(!blkList.equals("")) {
+					blkList += ",";
+				}
+				String blks = nodeName.substring(0, ind);;
+				blkList += blks;
+				String [] tmpBlkList = blks.split(",");
+				for(String blk: tmpBlkList) {
+					// First copy the output file from HDFS to local
+					String fileName = new String("/tmp/" + blk);
+					//Add to the fileNames list for the Process call
+
+					Path ansSrc = new Path(fs.getHomeDirectory(), blk);
+					Path ansDst = new Path(fileName);
+					//Keep track of stuff to delete later
+					deleteMe.add(ansSrc);
+					//deleteMe.add(ansDst);
+					try {
+						fs.moveToLocalFile(ansSrc, ansDst);
+					} catch (IOException e) {
+						LOG.error("Unable to copy output file to local directory: "
+								+ e.getMessage());
+					}
+				}
+			}
+			
+			if(json.equals("")) {
+				LOG.error("Not able to get Json from catalog");
+			}
+			processArgs.add(blkList);
+			processArgs.add(json);
+		}
+		LOG.info("Initial command list: " + processArgs);
+		ProcessBuilder builder = new ProcessBuilder(processArgs);
+		Process process = builder.start();
+		InputStream is = process.getInputStream();
+		InputStreamReader isr = new InputStreamReader(is);
+		BufferedReader br = new BufferedReader(isr);
+		String output = "";
+		String line;
+		while ((line = br.readLine()) != null) {
+			output = output.concat(line).concat("\n");
 		}
 
-		ProcessBuilder builder = new ProcessBuilder(processArgs);
-	    Process process = builder.start();
-	    InputStream is = process.getInputStream();
-	    InputStreamReader isr = new InputStreamReader(is);
-	    BufferedReader br = new BufferedReader(isr);
-	    String output = "";
-	    String line;
-	    while ((line = br.readLine()) != null) {
-	    	output = output.concat(line).concat("\n");
-	    }
-	    
-	    //LOG.info("Output: " + output);
-		
+		//LOG.info("Output: " + output);
+
 		tcp.sendCtxMessage(ctx, output);
-		
+
 		// Delete the file after reading from tmp and HDFS
 		for(Path p: deleteMe) {
 			fs.delete(p, false);
@@ -617,6 +673,8 @@ public class Client {
 		// Set params for Application Master
 		vargs.add("--container_memory " + String.valueOf(containerMemory));
 		vargs.add("--num_containers " + String.valueOf(numContainers));
+		// Add database type 
+		vargs.add("--db " + dbtype);
 		// NOTE: The query is a sentence and so we must surround it by quotes
 		// otherwise it won't get parsed properly by the ApplicationMaster
 		// vargs.add("--query '" + query + "'");
@@ -948,7 +1006,7 @@ public class Client {
 						where = "where " + where;
 					}
 
-					writeResultToConsole(tcpServer, ctx, fs, outputBlocks, "select " + selectStr, table, where);
+					writeResultToConsole(dbtype, tcpServer, ctx, fs, outputBlocks, "select " + selectStr, table, where);
 				}
 				
 				// Print time if asked

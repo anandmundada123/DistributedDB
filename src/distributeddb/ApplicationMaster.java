@@ -171,10 +171,12 @@ public class ApplicationMaster {
 
 	// Query to be executed
 	private String query = "";
-	
+
 	// Anand node where you want to launch container 
 	private String nodeList = "";
 
+	// Database Type
+	private String dbType = "";
 	// NEW: Variables which will store client host name, port number
 	// and appMaster Host name, port number
 	private String clientHostName;
@@ -187,23 +189,23 @@ public class ApplicationMaster {
 	private String shellDbScriptPath = "";
 	private String shellWrapScriptPath = "";
 	private String shellWrapQsScriptPath = "";
-	
+
 	// Timestamp needed for creating a local resource
 	private long shellDbScriptPathTimestamp = 0;
 	private long shellWrapScriptPathTimestamp = 0;
 	private long shellWrapQsScriptPathTimestamp = 0;
-	
+
 	// File length needed for local resource
 	private long shellDbScriptPathLen = 0;
 	private long shellWrapScriptPathLen = 0;
 	private long shellWrapQsScriptPathLen = 0;
-	
+
 	// Hardcoded path to shell script in launch container's local env
 	private final String ExecDbShellStringPath = DDBConstants.DB_SCRIPT_LOCATION;
 	private final String ExecWrapShellStringPath = DDBConstants.WRAP_SCRIPT_LOCATION;
 	private final String ExecWrapQsShellStringPath = DDBConstants.WRAP_QS_SCRIPT_LOCATION;
 	//private final String ExecWrapShellStringPath = "cont_net.py";
-	
+
 	private volatile boolean done;
 	private volatile boolean success;
 
@@ -249,8 +251,8 @@ public class ApplicationMaster {
 		}
 		return query1;
 	}
-	
-	
+
+
 	/**
 	 * NEW: This function will send message to Client with host name and port number
 	 * Then it will start a port in listen port.
@@ -260,11 +262,11 @@ public class ApplicationMaster {
 	private void startAppMasterServer() throws YarnException, IOException {
 		appMasterHost = DDBUtil.getHostName();
 		appMasterPortNo = DDBUtil.findFreePort();
-		
+
 		/*
 		 * Start server
 		 */
-		
+
 		// create client connection with Yarn-Client
 		System.out.println("Client Host Name: " + clientHostName + " Client Port No: " + clientPortNo);
 		// Start AM Server and if you get exception send exit message to client
@@ -282,26 +284,26 @@ public class ApplicationMaster {
 			tcpServer.close();
 			System.exit(-1);
 		}
-		
+
 		/*
 		 * NEW: Initialize resource manager and register Application manager to resource manager 
 		 */
 		initializeAppMaster();
-		
+
 		/* 
 		 * Send message to client 
 		 */
-		
+
 		String msg = DDBConstants.APP_MASTER_INFO + " " + appMasterHost + " " + appMasterPortNo;
 		TCPClient client = new TCPClient(clientHostName, clientPortNo);
 		client.init();
 		client.sendMsg(msg);
-		
+
 		/*
 		 * Launch container on master node
 		 * FIXME: Here we have to launch containers on every node in future
 		 */
-		
+
 		for(String n: nodeList.split(",")) {
 			boolean result = false;
 			result = run(n);
@@ -319,22 +321,22 @@ public class ApplicationMaster {
 				System.exit(0);
 			}
 		}
-		
+
 		System.out.println("waiting for query from client..");
-		
+
 		while (true) {
 			// Wait to get query from Client
 			msg = getNextMsg(tcpServer);
 			System.out.println("Got Query:"+msg+":");
 			if(msg.startsWith("exit")) {
 				System.out.println("Exiting as got exit from Client");
-				
+
 				/*containerClient.closeConnection();
 				containerClient = new TCPClient(contHost, contPort);
 				containerClient.init();
 				containerClient.sendMsg("exit");*/
 				//containerClient.closeConnection();
-	
+
 				tcpServer.close();
 				exitAppMaster();
 				System.exit(0);
@@ -344,8 +346,8 @@ public class ApplicationMaster {
 				containerClient = new TCPClient(contHost, contPort);
 				containerClient.init();
 				containerClient.sendMsg(msg);*/
-				
-				
+
+
 				// Wait to get message from container
 				/*msg = getNextMsg(tcpServer);
 				System.out.println("Got reply from container: "+ msg);
@@ -357,7 +359,7 @@ public class ApplicationMaster {
 				System.out.println("Client is requested to launch container on "+ msg);
 			}
 		}
-		
+
 	}
 
 	/**
@@ -431,6 +433,7 @@ public class ApplicationMaster {
 		opts.addOption(DDBConstants.CLIENT_HOST_NAME, true, "Client Host Name");
 		opts.addOption(DDBConstants.CLIENT_PORT_NO, true, "Client port number");
 		opts.addOption("nodes", true, "List of nodes where containers has to be launched");
+		opts.addOption("db", true, "Which Database we want to use");
 		opts.addOption("help", false, "Print usage");
 		CommandLine cliParser = new GnuParser().parse(opts, args);
 
@@ -513,14 +516,20 @@ public class ApplicationMaster {
 
 		clientPortNo = Integer.parseInt(cliParser.getOptionValue(DDBConstants.CLIENT_PORT_NO));
 		LOG.info("Received Client port number" + clientPortNo);
-		
-		if (!cliParser.hasOption("nodes")) {
-        throw new IllegalArgumentException(
-            "No node is specified where we have to launch containers");
-      }
 
-      nodeList = cliParser.getOptionValue("nodes");
-      LOG.info("Anand: Received node " + nodeList);
+		if (!cliParser.hasOption("nodes")) {
+			throw new IllegalArgumentException(
+					"No node is specified where we have to launch containers");
+		}
+		nodeList = cliParser.getOptionValue("nodes");
+		LOG.info("Anand: Received node " + nodeList);
+
+		if (!cliParser.hasOption("db")) {
+			throw new IllegalArgumentException(
+					"Databse type is not provided");
+		}
+		dbType = cliParser.getOptionValue("db");
+		LOG.info("database Type: " + dbType);
 
 		//For the DB script
 		if (envs.containsKey(DDBConstants.DDB_DB_LOCATION)) {
@@ -567,7 +576,7 @@ public class ApplicationMaster {
 						"Illegal values in env for shell script path");
 			}
 		}
-		
+
 		//For QS wrap script
 		if (envs.containsKey(DDBConstants.DDB_WRAP_QS_LOCATION)) {
 			shellWrapQsScriptPath = envs.get(DDBConstants.DDB_WRAP_QS_LOCATION);
@@ -590,8 +599,8 @@ public class ApplicationMaster {
 						"Illegal values in env for shell script path");
 			}
 		}
-				
-		
+
+
 		containerMemory = Integer.parseInt(cliParser.getOptionValue(
 				"container_memory", "10"));
 		numTotalContainers = Integer.parseInt(cliParser.getOptionValue(
@@ -636,17 +645,17 @@ public class ApplicationMaster {
 				AMRMClientAsync.createAMRMClientAsync(1000, allocListener);
 		resourceManager.init(conf);
 		resourceManager.start();
-		
+
 	}
-	
+
 	private void registerAppMaster() throws YarnException, IOException {
 		RegisterApplicationMasterResponse response = resourceManager
 				.registerApplicationMaster(appMasterHostname, appMasterRpcPort,
 						appMasterTrackingUrl);
 	}
-	
+
 	private void exitAppMaster() {
-		
+
 		// unregister application master
 		try {
 			resourceManager.unregisterApplicationMaster(FinalApplicationStatus.SUCCEEDED, null, null);
@@ -656,11 +665,11 @@ public class ApplicationMaster {
 		} catch (IOException e) {
 			LOG.error("Failed to unregister application", e);
 		}
-		
+
 		// Stop Resource Manager		
 		resourceManager.stop();
 	}
-	
+
 	/**
 	 * Main run function for the application master
 	 *
@@ -669,7 +678,7 @@ public class ApplicationMaster {
 	 */
 	@SuppressWarnings({ "unchecked" })
 	public boolean run(String nodeStr) throws YarnException, IOException {
-		
+
 		/*
 		 * FIXME: Un-comment following code  
 		 */
@@ -678,7 +687,7 @@ public class ApplicationMaster {
 				AMRMClientAsync.createAMRMClientAsync(1000, allocListener);
 		resourceManager.init(conf);
 		resourceManager.start();
-*/
+		 */
 		done = false;
 		containerListener = new NMCallbackHandler();
 		nmClientAsync = new NMClientAsyncImpl(containerListener);
@@ -698,7 +707,7 @@ public class ApplicationMaster {
 			} catch (InterruptedException ex) {}
 		}
 		finish();
-*/
+		 */
 		return true;
 	}
 
@@ -737,7 +746,7 @@ public class ApplicationMaster {
 					+ numFailedContainers.get();
 			success = false;
 		}
-		
+
 		/*
 		 * FIXME: Remove following Comment
 		 */
@@ -749,13 +758,13 @@ public class ApplicationMaster {
 		} catch (IOException e) {
 			LOG.error("Failed to unregister application", e);
 		}
-*/
+		 */
 		done = true;
-		
+
 		/*
 		 * FIXME: Remove following comment
 		 */
-		
+
 		// resourceManager.stop();
 	}
 
@@ -955,7 +964,7 @@ public class ApplicationMaster {
 		 * start request to the CM. 
 		 */
 		public void run() {
-			
+
 			/*System.out.println(Thread.currentThread().getStackTrace());
 			System.out.println("Anand: \n");*/
 			LOG.info("Setting up container launch container for containerid="
@@ -1020,7 +1029,7 @@ public class ApplicationMaster {
 				localResources.put(ExecWrapShellStringPath, shellWrapRsrc);
 				System.out.println("Anand : resource URL " +shellWrapRsrc.getResource());
 			}
-		
+
 			if (!shellWrapQsScriptPath.isEmpty()) {
 				LocalResource shellWrapQsRsrc = Records.newRecord(LocalResource.class);
 				shellWrapQsRsrc.setType(LocalResourceType.FILE);
@@ -1046,7 +1055,7 @@ public class ApplicationMaster {
 				localResources.put(ExecWrapQsShellStringPath, shellWrapQsRsrc);
 				System.out.println("Anand : resource URL " +shellWrapQsRsrc.getResource());
 			}
-			
+
 			ctx.setLocalResources(localResources);
 
 			// Set the necessary command to execute on the allocated container
@@ -1056,16 +1065,19 @@ public class ApplicationMaster {
 			// Set executable command
 			vargs.add("python");
 			// Set shell script path
-			if (!shellDbScriptPath.isEmpty()) {
+			if (!shellWrapScriptPath.isEmpty() && dbType.equals(DDBConstants.SQLITE3_DB)) {
 				vargs.add(ExecWrapShellStringPath);
-				System.out.println("Anand: Added Shell Script");
+				System.out.println("Anand: Added sqlite3 python Script");
+			} else if(!shellWrapQsScriptPath.isEmpty() && dbType.equals(DDBConstants.QUICKSTEP_DB)) {
+				vargs.add(ExecWrapQsShellStringPath);
+				System.out.println("Anand: Added Quickstep python Script");
 			}
-			
+
 			// NEW1:
 			vargs.add(clientHostName);
 			vargs.add(""+ clientPortNo);
 			vargs.add(String.valueOf(appAttemptID.getApplicationId().getId()));
-			
+
 			// Add log redirect params
 			vargs.add("1>" + ApplicationConstants.LOG_DIR_EXPANSION_VAR + "/stdout");
 			vargs.add("2>" + ApplicationConstants.LOG_DIR_EXPANSION_VAR + "/stderr");

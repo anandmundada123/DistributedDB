@@ -59,5 +59,10 @@ public class DDBConstants {
    */
   public static final String APP_MASTER_INFO = "APP_MASTER_INFO";
   
+  /**
+   * Database types 
+   */
+  public static final String QUICKSTEP_DB = "quickstep";
+  public static final String SQLITE3_DB = "sqlite3";
 }
 
