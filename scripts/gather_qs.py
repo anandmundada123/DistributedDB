@@ -35,8 +35,8 @@ try:
     deleteMe = []
 
     # First setup the quickstep environment (qsstor, catalog.json)
-    if(not os.path.exists('qsstor')):
-        os.mkdir("qsstor")
+    if(not os.path.exists('shellqsstor')):
+        os.mkdir("shellqsstor")
 
     ## Fix the catalog.json to contain our schema data for this output
     catalog = DEFAULT_CATALOG
@@ -53,19 +53,19 @@ try:
 
     ## Write the catalog to disk
     cStr = json.dumps(catalog)
-    fd = open('catalog.json', 'w')
+    fd = open('shellcatalog.json', 'w')
     fd.write(cStr + "\n")
     fd.flush()
     fd.close()
 
     # Remove this at the end:
-    deleteMe.append('catalog.json')
+    deleteMe.append('shellcatalog.json')
 
     # Find all blocks in /tmp/ based on the blockList provided, move these files into qsstor
     # also rename these files to match quickstep standards qsblk_%d.qsb
     for blkNum in range(1, len(blockList) + 1):
         blkName = blockList[blkNum-1]
-        qsStor = "qsstor/qsblk_%d.qsb" % blkNum
+        qsStor = "shellqsstor/qsblk_%d.qsb" % blkNum
         shutil.move("/tmp/%s" % blkName, qsStor)
         #print("/tmp/%s -> %s" % (blkName, qsStor))
         deleteMe.append(qsStor)

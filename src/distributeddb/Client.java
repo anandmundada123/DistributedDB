@@ -251,7 +251,7 @@ public class Client {
 		// New: We will find out free port number
 		// DFW: always use the same port
 		clientListentPort = 12345;
-		dbPartitioner = new DDBPartitioner(LOG);
+		dbPartitioner = new DDBPartitioner(LOG, dbtype);
 
 		// Set up the server
 		try {
@@ -926,7 +926,9 @@ public class Client {
 				}
 				LOG.info("[QUERY] Mapped operations: " + operations);
 				
+				//Prepare stuff
 				List<String> outputBlocks = new ArrayList<String>();
+				boolean isQuerySelect = dbPartitioner.getSelectStr(query.trim()) != "" ? true : false;
 				
 				/*
 				 * Perform task in parallel
@@ -973,8 +975,15 @@ public class Client {
                      *   ERROR: Something bad happened, send this string directly to the user
                      */
                     if(resp.contains("SUCCESS")) {
-                        //Just tell the user everything worked
-                        tcpServer.sendCtxMessage(ctx, resp + "\n");
+                    	/*
+                    	 * If the query is a select query then make sure we don't print out success messages
+                    	 * the reason this happens is sometimes quickstep clients that don't have any results
+                    	 * don't write a new quickstep block out to disk, so the exec_qs code interprets this
+                    	 * as a NONSELECT type query and therefore returns SUCCESS rather than OUTPUT
+                    	 */
+                    	if(!isQuerySelect) {
+                    		tcpServer.sendCtxMessage(ctx, resp + "\n");
+                    	}
                     } else if(resp.contains("OUTPUT")) {
                         int spIndex = query.indexOf(" ");
                         if (spIndex == -1) {
@@ -1007,6 +1016,11 @@ public class Client {
 					}
 
 					writeResultToConsole(dbtype, tcpServer, ctx, fs, outputBlocks, "select " + selectStr, table, where);
+				}
+				//This would be an error case, basically all nodes in the cluster returned SUCCESS rather than OUTPUT
+				//NOTE also that if all nodes return error we also end up here but whatever, its already an error case
+				else if(isQuerySelect) {
+					tcpServer.sendCtxMessage(ctx, "ERROR Select query identified but no nodes returned output blocks\n");
 				}
 				
 				// Print time if asked

@@ -8,7 +8,6 @@ import java.util.List;
 import java.util.Map;
 import java.util.Random;
 
-import org.mortbay.log.Log;
 
 interface Partition extends Serializable {
 	List<String> initialize();
@@ -364,7 +363,7 @@ class RangePartition implements Partition {
 			a = a.trim();
 			// The attr should look like "name type" so find that
 			if(!a.contains(" ")){
-				throw new Exception("HashPartitionInvalidAttributeDeclaration");
+				throw new Exception("RangePartitionInvalidAttributeDeclaration");
 			}
 			String[] tmp = a.split(" ");
 
@@ -400,7 +399,7 @@ class RangePartition implements Partition {
 					return rangeMap.get(i).getNode();
 				}
 			}
-			Log.warn("Range Partition No info matched");
+			System.out.println("RangePartition No info matched");
 			return nodes.get(0);
 			//ptr = hashVal % nodes.size();
 		} else if (attrType.equals("text")) {

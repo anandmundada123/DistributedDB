@@ -21,14 +21,16 @@ public class DDBPartitioner {
 	private List<String> nodes;
 	private Map<String, Partition> tables;
 	private Log LOG;
+	private String dbType;
 	
 	private String logPrefix() {
 		return "[DDBPARTITIONER]";
 	}
 	
-	public DDBPartitioner(Log log) {
+	public DDBPartitioner(Log log, String dbType) {
 		this.nodes = new ArrayList<String>();
 		this.LOG = log;
+		this.dbType = dbType;
 		//Try to load partition data from file
 		if(!loadData()) {
 			// Couldn't load, setup new Map
@@ -39,9 +41,10 @@ public class DDBPartitioner {
 		}
 	}
 
-	public DDBPartitioner(List<String> nodes, Log log) {
+	public DDBPartitioner(List<String> nodes, Log log, String dbType) {
 		this.nodes = nodes;
 		this.LOG = log;
+		this.dbType = dbType;
 		//Try to load partition data from file
 		if(!loadData()) {
 			// Couldn't load, setup new Map
@@ -67,7 +70,7 @@ public class DDBPartitioner {
 		LOG.info("Saving partition map to disk");
 		try {
 			ObjectOutputStream out = new ObjectOutputStream(
-					new FileOutputStream("partitions.data"));
+					new FileOutputStream(dbType + "partitions.data"));
 			out.writeObject(tables);
 			out.close();
 		} catch(IOException e) {
@@ -80,7 +83,7 @@ public class DDBPartitioner {
 		LOG.info("Loading partition map from disk");
 		try {
 			ObjectInputStream in = new ObjectInputStream(
-					new FileInputStream("partitions.data"));
+					new FileInputStream(dbType + "partitions.data"));
 			tables = (Map<String, Partition>) in.readObject();
 			in.close();
 			return true;
@@ -497,7 +500,7 @@ class UnitTestDDBPartitioner {
         System.out.println(msg);
 		//System.exit(0);
 		System.out.println("Running DDBPartitioner test");
-		DDBPartitioner p = new DDBPartitioner(LOG);
+		DDBPartitioner p = new DDBPartitioner(LOG, "test");
 		
 		System.out.println(p.explain());
 		/*System.out.println(p.getTableStr("select * from test where stuff"));

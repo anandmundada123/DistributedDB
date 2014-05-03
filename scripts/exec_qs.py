@@ -48,6 +48,10 @@ class QuickstepHandler:
                 fd.close()
             except Exception as e:
                 self.out("!! Error writing catalog: %s\n" % str(e))
+        
+        # Finally, delete the qsblocks file so we start fresh
+        if(os.path.exists("/home/hduser/qsblocks")):
+            os.unlink("/home/hduser/qsblocks")
 
     def runQS(self):
         """Takes charge of starting up the quickstep binary, then watches for any errors.
@@ -166,6 +170,7 @@ class QuickstepClientProtocol(Protocol):
             # If there is no difference then it wasn't a select query, return success
             if(not selectStmt or len(diffBlocks) == 0):
                 self.out('-- [QSCLIENT] Identified response to NONSELECT query success\n')
+                print(selectStmt, diffBlocks)
                 print(beforeBlocks)
                 print(afterBlocks)
                 self.factory.yarnConn.sendData("SUCCESS")
