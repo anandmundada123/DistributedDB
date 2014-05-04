@@ -89,6 +89,8 @@ public class Client {
 	// private String node = "";
 	// Port to listen to
 	private int clientListentPort = -1;
+	// Controller port
+	private int controllerListenPort = -1;
 	// Amt of memory to request for container in which shell script will be
 	// executed
 	private int containerMemory = 10;
@@ -105,6 +107,7 @@ public class Client {
 	// TCPServer object to get queries and return results
 	private TCPServer tcpServer;
 	// Partitioner object
+	private TCPServer tcpControllerServer;
 	private DDBPartitioner dbPartitioner;
 	// Application master host name
 	private String appMasterHostName;
@@ -250,19 +253,30 @@ public class Client {
 
 		// New: We will find out free port number
 		// DFW: always use the same port
-		clientListentPort = 12345;
+		clientListentPort = 23456;
+		controllerListenPort = 12345;
 		dbPartitioner = new DDBPartitioner(LOG, dbtype);
 
 		// Set up the server
 		try {
 			tcpServer = new TCPServer(clientHostName, clientListentPort, LOG);
-			LOG.info("Starting TCP Server on port " + clientListentPort);
+			LOG.info("Starting client TCP Server on port " + clientListentPort);
 			tcpServer.run();
 		} catch (Exception e) {
 			System.err.println(e.getLocalizedMessage());
 			System.exit(-1);
 		}
 
+		// Set up the server
+		try {
+			tcpControllerServer = new TCPServer(clientHostName, controllerListenPort, LOG);
+			LOG.info("Starting Controller TCP Server on port " + controllerListenPort);
+			tcpControllerServer.run();
+		} catch (Exception e) {
+			System.err.println(e.getLocalizedMessage());
+			System.exit(-1);
+		}
+				
 		// TODO: input node is used for all queries
 		/*
 		 * if (cliParser.hasOption("node")) { node =
@@ -683,7 +697,7 @@ public class Client {
 
 		// NEW: Add Client Hostname and Client Listening port
 		vargs.add("--" + DDBConstants.CLIENT_HOST_NAME + " " + clientHostName);
-		vargs.add("--" + DDBConstants.CLIENT_PORT_NO + " " + clientListentPort);
+		vargs.add("--" + DDBConstants.CLIENT_PORT_NO + " " + controllerListenPort);
 
 		// Add all nodes List
 		vargs.add("--nodes " + nodeList);
@@ -748,7 +762,7 @@ public class Client {
 		LOG.info("====================================================================================");
 		LOG.info("[REGISTER] Waiting for " + updateCnt + " responses");
 		for (int i = 0; i < updateCnt; i++) {
-			List<Object> tmp = tcpServer.getNextMessage();
+			List<Object> tmp = tcpControllerServer.getNextMessage();
 			ChannelHandlerContext ctx = (ChannelHandlerContext)tmp.get(0);
 			String msg = (String) tmp.get(1);
 			if (msg.startsWith(DDBConstants.APP_MASTER_INFO)) {
@@ -759,10 +773,10 @@ public class Client {
 					appMasterHostName = msgArray[1];
 					appMasterPortNumber = Integer.parseInt(msgArray[2]);
 					// Register the appmaster with our TCPServer
-					tcpServer.registerAppMaster(ctx);
+					tcpControllerServer.registerAppMaster(ctx);
 				} else {
 					LOG.error("[REGISTER] Got message with less than 3 arguments from AppMaster");
-					tcpServer.close();
+					tcpControllerServer.close();
 					System.exit(0);
 				}
 			} else if (msg.startsWith("connect")) {
@@ -772,15 +786,15 @@ public class Client {
 							+ msgArray[2]);
                     // Register the node for our Partitioner
                     dbPartitioner.registerNode(msgArray[1]);
-					tcpServer.registerHost(msgArray[1], ctx);
+                    tcpControllerServer.registerHost(msgArray[1], ctx);
 				} else {
 					LOG.error("[REGISTER] Got message with less than 3 arguments from container");
-					tcpServer.close();
+					tcpControllerServer.close();
 					System.exit(0);
 				}
 			} else {
 				LOG.error("[REGISTER] Got bad type msg: " + msg);
-				tcpServer.close();
+				tcpControllerServer.close();
 				System.exit(0);
 			}
 		}
@@ -909,6 +923,7 @@ public class Client {
 			if (query.startsWith("!exit")) {
 				LOG.info("[QUERY] Exiting as got exit from user");
 				tcpServer.close();
+				tcpControllerServer.close();
 				forceKillApplication(appId);
 				System.exit(0);
 			}
@@ -941,7 +956,7 @@ public class Client {
 						LOG.info("[QUERY] Sending query to: " + p.getKey());
 					
 						// Now forward query to specific node
-						tcpServer.sendHostMessage(p.getKey(), p.getValue());
+						tcpControllerServer.sendHostMessage(p.getKey(), p.getValue());
 					}
 					
 				}
@@ -959,12 +974,12 @@ public class Client {
 					if(!performParallel){
 						LOG.info("[QUERY] Sending query to: " + p.getKey());
 						// Now forward query to specific node
-						tcpServer.sendHostMessage(p.getKey(), p.getValue());
+						tcpControllerServer.sendHostMessage(p.getKey(), p.getValue());
 					}
 				
                     // wait for reply from Node
                     LOG.info("[QUERY]: Waiting for response");
-                    List<Object> respTmp = tcpServer.getNextMessage();
+                    List<Object> respTmp = tcpControllerServer.getNextMessage();
                     ChannelHandlerContext respCtx = (ChannelHandlerContext) respTmp.get(0);
                     String resp = (String) respTmp.get(1);
                     LOG.info("[QUERY]: Got result from: " + respCtx.getChannel().toString() + " Container: " + resp);
