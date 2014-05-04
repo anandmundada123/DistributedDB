@@ -798,7 +798,7 @@ public class Client {
 		 * and wait to get result from application master
 		 */
 		TCPClient client = null;
-		boolean performParallel = false;
+		boolean performParallel = true;
 		boolean performTiming = false;
 		while (true) {
 			List<Object> tmp = tcpServer.getNextMessage();
@@ -949,6 +949,7 @@ public class Client {
 				 * Main loop happens regardless of serial or parallel
 				 */
 				Iterator<Map.Entry<String, String>> it = operations.entrySet().iterator();
+				boolean sentSuccess = false;
 				while(it.hasNext()) {
 					Map.Entry<String, String> p = (Map.Entry<String, String>)it.next();
 					
@@ -981,7 +982,9 @@ public class Client {
                     	 * don't write a new quickstep block out to disk, so the exec_qs code interprets this
                     	 * as a NONSELECT type query and therefore returns SUCCESS rather than OUTPUT
                     	 */
-                    	if(!isQuerySelect) {
+                    	//Track if we sent out success, if not send only 1
+                    	if(!isQuerySelect && !sentSuccess) {
+                    		sentSuccess = true;
                     		tcpServer.sendCtxMessage(ctx, resp + "\n");
                     	}
                     } else if(resp.contains("OUTPUT")) {

@@ -7,6 +7,8 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Random;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 
 interface Partition extends Serializable {
@@ -33,11 +35,11 @@ class RandomPartition implements Partition {
 		}
 		//Check if we need to remove any nodes based on the number
 		int numRemove = nodes.size() - nodeNumber;
-		Random r = new Random();
 		for(int i = numRemove; i > 0; i--) {
 			// Pick a random node to remove from the list
-			nodes.remove(r.nextInt(nodes.size()));
+			this.nodes.remove(0);
 		}
+		System.out.println("Nodes: " + this.nodes);
 		// Keep track of where we choose to put the data
 		distribution = new int[this.nodes.size()];
 		//Init the dist
@@ -88,7 +90,7 @@ class HashPartition implements Partition {
 	private int hashingAttrPosn;
 	private String hashingType;
 	private String declAttrs;
-	private final String[] SUPPORTEDATTRTYPES = {"integer", "text", "real"};
+	private final String[] SUPPORTEDATTRTYPES = {"integer", "char", "decimal"};
 	
 	public HashPartition(List<String> nodes, String attrs, String hashOn, String reqNodes) throws Exception {
 		//Keep track of what the declared attributes were
@@ -122,25 +124,37 @@ class HashPartition implements Partition {
 		// Now we need to look through the attribute list to make sure their hash attr is in the list
 		String[] theAttrs = attrs.split(",");
 		hashingAttrPosn = 0;
+        Pattern pat = Pattern.compile("(.*) (.*?)(\\([0-9]*\\)|)", Pattern.CASE_INSENSITIVE);
 		for(String a: theAttrs) {
 			a = a.trim();
-			// The attr should look like "name type" so find that
-			if(!a.contains(" ")){
-				throw new Exception("HashPartitionInvalidAttributeDeclaration");
-			}
-			String[] tmp = a.split(" ");
 			
-			//Search for the match to the requested hash attr
-			if(hashOn.equals(tmp[0])){
-				hashingAttr = tmp[0];
-				hashingType = tmp[1].toLowerCase();
-				//Make sure the hashing type is supported
-				if(!Arrays.asList(SUPPORTEDATTRTYPES).contains(hashingType)){
-					throw new Exception("HashPartitionUnsupportedType");
-				}
-				break;
-			}
-			hashingAttrPosn++;
+			System.out.println("Initial: " + a);
+            Matcher mat = pat.matcher(a);
+            if(mat.matches()) {
+            	String attrName = mat.group(1);
+            	String attrType = mat.group(2);
+            	//NOTE the regex gives us size if they declared it but we don't care
+            	String attrSize = mat.group(3);
+                
+            	// The attr should look like "name type" so find that
+                if(attrName == null || attrName.equals("") || attrType == null || attrType.equals("")) {
+                    throw new Exception("HashPartitionInvalidAttributeDeclaration");
+                }
+                
+                //Search for the match to the requested hash attr
+                if(hashOn.equals(attrName)){
+                    hashingAttr = attrName.toLowerCase();
+                    hashingType = attrType.toLowerCase();
+                    //Make sure the hashing type is supported
+                    if(!Arrays.asList(SUPPORTEDATTRTYPES).contains(hashingType)){
+                        throw new Exception("HashPartitionUnsupportedType");
+                    }
+                    break;
+                }
+                hashingAttrPosn++;
+            } else {
+            	throw new Exception("HashPartitionInvalidAttributeSyntax");
+            }
 		}
 		if(hashingAttr == null) {
 			throw new Exception("HashPartitionInvalidHashAttribute");
@@ -148,6 +162,7 @@ class HashPartition implements Partition {
 		
 		System.out.println("Hashing(" + hashingAttrPosn + "): '" + hashingAttr + "' " + hashingType);
 	}
+
 	public String explain() {
 		String out = "\tHashing Attribute: " + hashingAttr + ", type: " + hashingType + "\n";
 		for(int i = 0; i < nodes.size(); i++) {
@@ -176,9 +191,9 @@ class HashPartition implements Partition {
 		if(hashingType.equals("integer")){
 			int hashVal = Integer.parseInt(hashValue);
 			ptr = hashVal % nodes.size();
-		} else if (hashingType.equals("text")) {
+		} else if (hashingType.equals("char")) {
 			ptr = Math.abs(hashValue.hashCode()) % nodes.size();
-		} else if (hashingType.equals("real")) {
+		} else if (hashingType.equals("decimal")) {
 			float hashVal = Float.parseFloat(hashValue);
 			ptr = (int) (hashVal % nodes.size());
 		} else {
@@ -211,9 +226,9 @@ class HashPartition implements Partition {
 				if(hashingType.equals("integer")){
 					int hashVal = Integer.parseInt(tmp[1].trim());
 					ptr = hashVal % nodes.size();
-				} else if (hashingType.equals("text")) {
+				} else if (hashingType.equals("char")) {
 					ptr = Math.abs(tmp[1].trim().hashCode()) % nodes.size();
-				} else if (hashingType.equals("real")) {
+				} else if (hashingType.equals("decimal")) {
 					float hashVal = Float.parseFloat(tmp[1].trim());
 					ptr = (int) (hashVal % nodes.size());
 				} else {
@@ -331,7 +346,7 @@ class RangePartition implements Partition {
 	private String declAttrs;
 	private int[] distribution;
 	private List <Range> rangeMap;
-	private final String[] SUPPORTEDATTRTYPES = {"integer", "text", "real"};
+	private final String[] SUPPORTEDATTRTYPES = {"integer", "char", "decimal"};
 	private static final long serialVersionUID = 4L;
 	
 	public RangePartition(List<String> nodes, String declAttrs, String partAttr, List<Range> rangeList) throws Exception {
@@ -402,11 +417,11 @@ class RangePartition implements Partition {
 			System.out.println("RangePartition No info matched");
 			return nodes.get(0);
 			//ptr = hashVal % nodes.size();
-		} else if (attrType.equals("text")) {
+		} else if (attrType.equals("char")) {
 			// TODO
 			return nodes.get(0);
 			//ptr = Math.abs(hashValue.hashCode()) % nodes.size();
-		} else if (attrType.equals("real")) {
+		} else if (attrType.equals("decimal")) {
 			// TODO
 			return nodes.get(0);
 			//float hashVal = Float.parseFloat(hashValue);
@@ -432,6 +447,8 @@ class RangePartition implements Partition {
 			return nodes;
 		}
 		else {
+			//TODO: if the where clause looks like "i >= 1" we end up here, only thing that saves us
+			//is the trim will look like "i >" is that legit enough or should we do more checks?
 			String [] tmp = whereClause.split("=");
 			String attr = tmp[0].trim();
 			if(attr.equals(partAttr)) {

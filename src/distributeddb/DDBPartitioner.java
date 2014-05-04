@@ -11,6 +11,7 @@ import java.util.HashMap;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
+import java.util.Random;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -125,10 +126,16 @@ public class DDBPartitioner {
 		if(mat.matches()) {
 			String tmp = mat.group(2).trim();
 			//If it contains spaces or parens deal with it
-			if(tmp.contains(" ")) {
-				return tmp.substring(0, tmp.indexOf(" "));
+			if(tmp.contains("(") && tmp.contains(" ")) {
+				if(tmp.indexOf("(") < tmp.indexOf(" ")) {
+					return tmp.substring(0, tmp.indexOf("("));
+				} else {
+					return tmp.substring(0, tmp.indexOf(" "));
+				}
 			} else if(tmp.contains("(")) {
 				return tmp.substring(0, tmp.indexOf("("));
+			} else if(tmp.contains(" ")) {
+				return tmp.substring(0, tmp.indexOf(" "));
 			} else {
 				return tmp;
 			}
@@ -202,7 +209,7 @@ public class DDBPartitioner {
 	private Map<String, String> parseCreateQuery(String query) throws Exception {
 		System.out.println("CREATE match: ");
 		// Pull out important pieces
-		Pattern pat = Pattern.compile("\\s*create table (.*)\\((.*)\\) partition by (.*)", Pattern.CASE_INSENSITIVE);
+		Pattern pat = Pattern.compile("\\s*create table (.*?)\\((.*)\\) partition by (.*)", Pattern.CASE_INSENSITIVE);
 		Matcher mat = pat.matcher(query);
 		if(mat.matches()) {
 			String table = mat.group(1);
@@ -485,7 +492,24 @@ class UnitTestDDBPartitioner {
 	private static final Log LOG = LogFactory.getLog(UnitTestDDBPartitioner.class);
 	
 	public static void main(String[] args) throws Exception {
-		String query = "!cmd wah this is a test";
+		List<String> nodes = new ArrayList<String>();
+		nodes.add("one");
+		nodes.add("two");
+		nodes.add("three");
+		nodes.add("four");
+		System.out.println("Size: " + (nodes.size() - 2));
+		
+		for(int i = 2; i > 0; i--) {
+			// Pick a random node to remove from the list
+			nodes.remove(0);
+		}
+		
+		Random r = new Random();
+		for(int i = 0; i < 10; i++) {
+			System.out.println(nodes.get(r.nextInt(nodes.size())));
+		}
+		System.exit(0);
+		/*String query = "!cmd wah this is a test";
 		List<String> tmp = new ArrayList<String>(Arrays.asList(query.split(" ")));
 		//Drop "!cmd" element
 		tmp.remove(0);
@@ -497,16 +521,18 @@ class UnitTestDDBPartitioner {
 		}
 		
         System.out.println(node);
-        System.out.println(msg);
+        System.out.println(msg);*/
 		//System.exit(0);
+		
+		
 		System.out.println("Running DDBPartitioner test");
 		DDBPartitioner p = new DDBPartitioner(LOG, "test");
 		
 		System.out.println(p.explain());
 		/*System.out.println(p.getTableStr("select * from test where stuff"));
 		System.out.println(p.getTableStr("select * from test"));
-		System.out.println(p.getTableStr("create table test(stuff)"));
-		System.out.println(p.getTableStr("insert into test values (stuff)"));*/
+		System.out.println(p.getTableStr("create table test(a char(10))"));
+		System.out.println(p.getTableStr("insert into test values ('stuff')"));*/
 		
 		/*System.out.println(p.getSelectStr("select * from test"));
 		System.out.println(p.getSelectStr("select id from test"));
@@ -524,16 +550,12 @@ class UnitTestDDBPartitioner {
 		p.registerNode("n2");
 		p.registerNode("n3");
 		p.registerNode("n4");
-		/**************************************
-		 * TODO: We need to send what the columns are when we create the Partition object
-		 * because in partition schemes when we need to make a decision based on the value (range) it will be required
-		 */
 		
 		/*
 		 * Round robin test
 		 */
-		
-		/*System.out.println("===============================================================================");
+		/*
+		System.out.println("===============================================================================");
 		System.out.println(p.parseQuery("create table rrtest1(i INTEGER, uname TEXT) partition by roundrobin"));
 		System.out.println("===============================================================================");
 		System.out.println(p.parseQuery("create table rrtest2(i INTEGER, uname TEXT) partition by roundrobin(n0,n1,n2)"));
@@ -563,7 +585,8 @@ class UnitTestDDBPartitioner {
 		System.out.println(p.parseQuery("drop table rrtest2"));
 		System.out.println("===============================================================================");
 		System.out.println(p.parseQuery("drop table rrtest1"));
-*/
+		*/
+		
 		/*
 		 * Random test
 		 */
@@ -599,28 +622,19 @@ class UnitTestDDBPartitioner {
 		/*
 		 * Hash test
 		 */
+		/*
+		System.out.println("===============================================================================");
+		System.out.println(p.parseQuery("create table htest1(i INTEGER, uname CHAR(10)) partition by hash(uname)"));
 		//System.out.println("===============================================================================");
-		//System.out.println(p.parseQuery("create table htest1(i INTEGER, uname TEXT)"));
+		//System.out.println(p.parseQuery("create table htest1(i INTEGER, uname TEXT) partition by hash(i)"));
+		System.out.println("===============================================================================");
+		System.out.println(p.parseQuery("create table htest2(i INTEGER, uname CHAR(120)) partition by hash(uname) PARTITIONS (n0,n1,n2)"));
 		//System.out.println("===============================================================================");
-		System.out.println(p.parseQuery("create table htest1(i INTEGER, uname TEXT) partition by hash(i)"));
-		System.out.println("===============================================================================");
-		System.out.println(p.parseQuery("insert into htest1 values (1, 'test'), (2,'test2'), (3,'test3'),(4,'test4'),(5,'test5'),(6,'test6')"));
-		System.out.println("===============================================================================");
-		/*System.out.println(p.parseQuery("create table htest2(i INTEGER, uname TEXT) partition by hash(uname) PARTITIONS (n0,n1,n2)"));
-		System.out.println("===============================================================================");
-		System.out.println(p.parseQuery("create table htest3(i INTEGER) partition by hash(i)"));
+		//System.out.println(p.parseQuery("create table htest3(i INTEGER) partition by hash(i)"));
 		//System.out.println("===============================================================================");
 		//System.out.println(p.parseQuery("create table htest3(i INTEGER, uname TEXT) partition by hash(j)"));
 		System.out.println("===============================================================================");
-		System.out.println(p.parseQuery("insert into htest1 values (1, 'test')"));
-		System.out.println("===============================================================================");
-		System.out.println(p.parseQuery("insert into htest1 values (2, 'test')"));
-		System.out.println("===============================================================================");
-		System.out.println(p.parseQuery("insert into htest1 values (3, 'test')"));
-		System.out.println("===============================================================================");
-		System.out.println(p.parseQuery("insert into htest1 values (4, 'test')"));
-		System.out.println("===============================================================================");
-		System.out.println(p.parseQuery("insert into htest1 values (5, 'test')"));
+		System.out.println(p.parseQuery("insert into htest1 values (1, 'test'), (2,'test2'), (3,'test3'),(4,'test4'),(5,'test5'),(6,'test6')"));
 		System.out.println("===============================================================================");
 		System.out.println(p.parseQuery("insert into htest2 values (1, 'test')"));
 		System.out.println("===============================================================================");
@@ -629,24 +643,23 @@ class UnitTestDDBPartitioner {
 		System.out.println(p.parseQuery("insert into htest2 values (3, 'qwerty')"));
 		System.out.println("===============================================================================");
 		System.out.println(p.parseQuery("insert into htest2 values (4, 'deadbeef')")); 
-		System.out.println("===============================================================================");*/
+		System.out.println("===============================================================================");
 		System.out.println(p.parseQuery("Select * from htest1 where i = 4"));
 		System.out.println("===============================================================================");
-		System.out.println(p.parseQuery("drop table htest1"));
-		System.out.println("===============================================================================");
-		/*System.out.println(p.parseQuery("Select * from htest2"));
-		System.out.println("===============================================================================");
-		System.out.println(p.parseQuery("drop table htest3"));
+		System.out.println(p.parseQuery("Select * from htest2"));
+		//System.out.println("===============================================================================");
+		//System.out.println(p.parseQuery("drop table htest3"));
 		System.out.println("===============================================================================");
 		System.out.println(p.parseQuery("drop table htest2"));
 		System.out.println("===============================================================================");
 		System.out.println(p.parseQuery("drop table htest1"));
+		*/
 		
 		/**
 		 * Range Test
 		 */
 		System.out.println("===============================================================================");
-		System.out.println(p.parseQuery("create table htest1(i INTEGER, uname TEXT) partition by range(i) (min:20,20:40,40:max)"));
+		System.out.println(p.parseQuery("create table htest1(i INTEGER, uname CHAR(10)) partition by range(i) (min:20,50:max)"));
 		System.out.println("===============================================================================");
 		System.out.println(p.parseQuery("insert into htest1 values (0, 'test1')"));
 		System.out.println("===============================================================================");
@@ -655,6 +668,12 @@ class UnitTestDDBPartitioner {
 		System.out.println(p.parseQuery("insert into htest1 values (787, 'test1')"));
 		System.out.println("===============================================================================");
 		System.out.println(p.parseQuery("select * from htest1 where i = 12"));
+		System.out.println("===============================================================================");
+		System.out.println(p.parseQuery("select * from htest1 where i = 34"));
+		System.out.println("===============================================================================");
+		System.out.println(p.parseQuery("select * from htest1 where i = 700"));
+		System.out.println("===============================================================================");
+		System.out.println(p.parseQuery("select * from htest1 where i >= 700"));
 		System.out.println("===============================================================================");
 		System.out.println(p.parseQuery("select * from htest1"));
 		System.out.println("===============================================================================");
@@ -665,30 +684,8 @@ class UnitTestDDBPartitioner {
 		p.parseQuery("create table test1(i INTEGER, j INTEGER) partition by range(i) PARTITIONS (i < 20, i < MAX)");
 		System.out.println("===============================================================================");
 		p.parseQuery("create table test3(i INTEGER, uname TEXT) partition by hash(4)");
+		*/
 
-		/*
-		 * Insert statements
-		 */
-		/*System.out.println("===============================================================================");
-		System.out.println(p.parseQuery("insert into test4 values (0, 10)"));
-		System.out.println("===============================================================================");
-		System.out.println(p.parseQuery("insert into test4 values (1, 9)"));
-		System.out.println("===============================================================================");
-		//System.out.println(p.parseQuery("insert into test4 values ((1, 9), (2, 8))"));*/
-
-		/*
-		 * Select statements
-		 */
-		/*System.out.println("===============================================================================");
-		System.out.println(p.parseQuery("Select * from test4"));
-		System.out.println("===============================================================================");
-		System.out.println(p.parseQuery("Select * from test5"));
-		System.out.println("===============================================================================");
-		System.out.println(p.parseQuery("Select * from test6"));
-		//System.out.println("===============================================================================");
-		//p.parseQuery("Select id, name from test4");
-		//System.out.println("===============================================================================");
-		//p.parseQuery("Select id, name from test5 where id = 1");*/
 		
 	}
 }
